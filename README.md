@@ -21,6 +21,20 @@
   Backend-focused developer interested in Python, FastAPI, PostgreSQL, and AI-powered applications.
 </p>
 
+## &#127911; Spotify
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Spotify-Currently%20Listening-1DB954?style=for-the-badge&logo=spotify&logoColor=white" alt="Spotify currently listening" />
+</p>
+
+<p align="center">
+  After deploying this repo to Vercel, replace <code>YOUR_VERCEL_APP</code> below to show your live track card.
+</p>
+
+```html
+<img src="https://YOUR_VERCEL_APP.vercel.app/api/spotify" alt="Spotify Now Playing" />
+```
+
 ## &#128187; `manan.profile.yml`
 
 ```yaml
