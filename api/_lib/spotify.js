@@ -1,6 +1,10 @@
 const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 const NOW_PLAYING_ENDPOINT =
   "https://api.spotify.com/v1/me/player/currently-playing?additional_types=track";
+const AUDIO_ANALYSIS_ENDPOINT = "https://api.spotify.com/v1/audio-analysis";
+
+const analysisCache = new Map();
+const imageCache = new Map();
 
 function getBaseUrl(req) {
   const forwardedProto = req.headers["x-forwarded-proto"];
@@ -33,6 +37,60 @@ function encodeClientCredentials() {
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET || "";
 
   return Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function readCache(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+
+  return entry.value;
+}
+
+function writeCache(cache, key, value, ttlMs) {
+  cache.set(key, {
+    expiresAt: Date.now() + ttlMs,
+    value,
+  });
+  return value;
+}
+
+function hashString(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+
+  return Math.abs(hash);
+}
+
+function pickAlbumArt(images) {
+  if (!Array.isArray(images) || images.length === 0) {
+    return "";
+  }
+
+  const preferred = [...images].sort((left, right) => {
+    const leftDelta = Math.abs((left.height || 0) - 160);
+    const rightDelta = Math.abs((right.height || 0) - 160);
+    return leftDelta - rightDelta;
+  });
+
+  return preferred[0] && preferred[0].url ? preferred[0].url : images[0].url || "";
+}
+
+function normalizeLoudness(loudness) {
+  return clamp((Number(loudness || -60) + 60) / 60, 0, 1);
 }
 
 async function exchangeCodeForRefreshToken(code, redirectUri) {
@@ -81,6 +139,195 @@ async function getAccessToken(refreshToken) {
   return data.access_token;
 }
 
+async function getAudioAnalysis(accessToken, trackId) {
+  if (!trackId) {
+    return null;
+  }
+
+  const cached = readCache(analysisCache, trackId);
+  if (cached) {
+    return cached;
+  }
+
+  const response = await fetch(`${AUDIO_ANALYSIS_ENDPOINT}/${trackId}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const analysis = await response.json();
+  return writeCache(analysisCache, trackId, analysis, 1000 * 60 * 60 * 6);
+}
+
+async function getImageDataUri(imageUrl) {
+  if (!imageUrl) {
+    return "";
+  }
+
+  const cached = readCache(imageCache, imageUrl);
+  if (cached) {
+    return cached;
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    return "";
+  }
+
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const dataUri = `data:${contentType};base64,${buffer.toString("base64")}`;
+
+  return writeCache(imageCache, imageUrl, dataUri, 1000 * 60 * 60 * 12);
+}
+
+function getBeatStrength(segments, start, duration, confidence) {
+  const end = start + duration;
+  let peak = -60;
+  let total = 0;
+  let count = 0;
+
+  for (const segment of segments) {
+    const segmentStart = Number(segment.start || 0);
+    const segmentEnd = segmentStart + Number(segment.duration || 0);
+
+    if (segmentEnd < start || segmentStart > end) {
+      continue;
+    }
+
+    const loudness = Number(
+      segment.loudness_max ?? segment.loudness_start ?? segment.loudness_max_time ?? -60
+    );
+    peak = Math.max(peak, loudness);
+    total += loudness;
+    count += 1;
+  }
+
+  const average = count > 0 ? total / count : peak;
+  const durationWeight = 1 - clamp((duration - 0.32) / 0.85, 0, 1) * 0.25;
+  const loudnessWeight =
+    normalizeLoudness(peak) * 0.65 + normalizeLoudness(average) * 0.2;
+  const confidenceWeight = clamp(Number(confidence || 0), 0, 1) * 0.15;
+
+  return clamp((loudnessWeight + confidenceWeight) * durationWeight, 0.16, 1);
+}
+
+function buildBeatFrames(analysis, progressMs) {
+  if (
+    !analysis ||
+    !Array.isArray(analysis.beats) ||
+    analysis.beats.length < 4 ||
+    !Array.isArray(analysis.segments)
+  ) {
+    return null;
+  }
+
+  const progressSeconds = progressMs / 1000;
+  const beats = analysis.beats.filter(
+    (beat) => Number(beat.duration || 0) > 0 && Number(beat.start || 0) >= 0
+  );
+
+  if (beats.length < 4) {
+    return null;
+  }
+
+  let startIndex = beats.findIndex(
+    (beat) => Number(beat.start || 0) + Number(beat.duration || 0) > progressSeconds
+  );
+  if (startIndex === -1) {
+    startIndex = 0;
+  }
+
+  const selectedBeats = [];
+  for (let index = 0; index < 10; index += 1) {
+    selectedBeats.push(beats[(startIndex + index) % beats.length]);
+  }
+
+  const strengthsBase = selectedBeats.map((beat) =>
+    getBeatStrength(
+      analysis.segments,
+      Number(beat.start || 0),
+      clamp(Number(beat.duration || 0.48), 0.22, 1.15),
+      beat.confidence
+    )
+  );
+  const durations = selectedBeats.map((beat) =>
+    clamp(Number(beat.duration || 0.48), 0.22, 1.15)
+  );
+  const loopDuration = durations.reduce((sum, value) => sum + value, 0);
+
+  if (!loopDuration) {
+    return null;
+  }
+
+  const keyTimes = [0];
+  let elapsed = 0;
+  for (const duration of durations) {
+    elapsed += duration;
+    keyTimes.push(elapsed / loopDuration);
+  }
+
+  return {
+    keyTimes: keyTimes.map((value) => value.toFixed(4)).join(";"),
+    loopDuration: Number(loopDuration.toFixed(2)),
+    strengths: [...strengthsBase, strengthsBase[0]],
+  };
+}
+
+function buildFallbackFrames(seedKey, progressMs) {
+  const seed = hashString(`${seedKey}|${Math.floor(progressMs / 1000)}`);
+  const steps = 10;
+  const strengthsBase = Array.from({ length: steps }, (_, index) => {
+    const primary = Math.abs(Math.sin(seed * 0.00073 + index * 0.81));
+    const secondary = Math.abs(Math.cos(seed * 0.00113 + index * 0.56));
+    return clamp(0.24 + (primary * 0.62 + secondary * 0.38) * 0.55, 0.18, 0.92);
+  });
+
+  return {
+    keyTimes: Array.from({ length: steps + 1 }, (_, index) =>
+      (index / steps).toFixed(4)
+    ).join(";"),
+    loopDuration: 2.8,
+    strengths: [...strengthsBase, strengthsBase[0]],
+  };
+}
+
+function buildWaveformModel({ analysis, isPlaying, progressMs, seedKey }) {
+  const frames =
+    (isPlaying ? buildBeatFrames(analysis, progressMs) : null) ||
+    buildFallbackFrames(seedKey, progressMs);
+  const barCount = 54;
+  const minHeight = isPlaying ? 8 : 6;
+  const maxHeight = isPlaying ? 54 : 24;
+
+  const bars = Array.from({ length: barCount }, (_, index) => {
+    const phase = index / Math.max(1, barCount - 1);
+    const arch = 0.38 + 0.62 * Math.sin(Math.PI * phase);
+    const tilt = 0.82 + 0.18 * Math.cos((phase - 0.5) * Math.PI * 1.4);
+    const heights = frames.strengths.map((strength, frameIndex) => {
+      const pulse = 0.28 + 0.72 * Math.abs(Math.sin(frameIndex * 0.9 + phase * 8.6));
+      const shimmer = 0.55 + 0.45 * Math.abs(Math.cos(frameIndex * 0.48 - phase * 11.2));
+      const energy = clamp(strength * arch * pulse + 0.12 * shimmer, 0.08, 1);
+      return Math.round(minHeight + (maxHeight - minHeight) * energy * tilt);
+    });
+
+    return {
+      heights,
+      opacity: (0.44 + phase * 0.4).toFixed(2),
+    };
+  });
+
+  return {
+    bars,
+    keyTimes: frames.keyTimes,
+    loopDuration: frames.loopDuration,
+  };
+}
+
 async function getCurrentlyPlaying(refreshToken) {
   const accessToken = await getAccessToken(refreshToken);
   const response = await fetch(NOW_PLAYING_ENDPOINT, {
@@ -103,15 +350,36 @@ async function getCurrentlyPlaying(refreshToken) {
     return null;
   }
 
+  const trackId = data.item.id || "";
+  const album = data.item.album ? data.item.album.name || "" : "";
+  const title = data.item.name || "Unknown track";
+  const artists = Array.isArray(data.item.artists)
+    ? data.item.artists.map((artist) => artist.name).join(", ")
+    : "";
+  const albumArtUrl = pickAlbumArt(data.item.album && data.item.album.images);
+  const [albumArtDataUri, analysis] = await Promise.all([
+    getImageDataUri(albumArtUrl),
+    getAudioAnalysis(accessToken, trackId),
+  ]);
+
   return {
-    album: data.item.album ? data.item.album.name : "",
-    artists: Array.isArray(data.item.artists)
-      ? data.item.artists.map((artist) => artist.name).join(", ")
-      : "",
+    album,
+    albumArtDataUri,
+    artists,
     durationMs: data.item.duration_ms || 0,
+    externalUrl:
+      data.item.external_urls && data.item.external_urls.spotify
+        ? data.item.external_urls.spotify
+        : "",
     isPlaying: Boolean(data.is_playing),
     progressMs: data.progress_ms || 0,
-    title: data.item.name || "Unknown track",
+    title,
+    waveform: buildWaveformModel({
+      analysis,
+      isPlaying: Boolean(data.is_playing),
+      progressMs: data.progress_ms || 0,
+      seedKey: `${title}|${artists}|${album}|${trackId}`,
+    }),
   };
 }
 
@@ -129,7 +397,7 @@ function truncate(value, maxLength) {
     return value;
   }
 
-  return `${value.slice(0, maxLength - 1)}…`;
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 function formatTime(milliseconds) {
@@ -144,109 +412,216 @@ function formatTime(milliseconds) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function renderSpotifyGlyph() {
+function renderSpotifyGlyph(x, y, size) {
+  const scale = size / 68;
   return `
-    <circle cx="74" cy="100" r="34" fill="#1DB954" />
-    <path d="M53 88c20-7 43-4 59 6" fill="none" stroke="#081018" stroke-linecap="round" stroke-width="5.5" />
-    <path d="M56 100c15-5 32-3 44 4" fill="none" stroke="#081018" stroke-linecap="round" stroke-width="4.5" />
-    <path d="M59 112c10-3 22-2 30 3" fill="none" stroke="#081018" stroke-linecap="round" stroke-width="4" />
-  `;
+    <g transform="translate(${x} ${y}) scale(${scale})">
+      <circle cx="34" cy="34" r="34" fill="#1DB954" />
+      <path d="M16 24c18-7 38-5 52 5" fill="none" stroke="#04110A" stroke-linecap="round" stroke-width="5.5" />
+      <path d="M19 36c13-5 29-3 39 3" fill="none" stroke="#04110A" stroke-linecap="round" stroke-width="4.4" />
+      <path d="M22 48c8-2.5 18-2 24 1.8" fill="none" stroke="#04110A" stroke-linecap="round" stroke-width="3.7" />
+    </g>`;
+}
+
+function renderAlbumArt(track) {
+  if (track.albumArtDataUri) {
+    return `
+      <rect x="30" y="56" width="144" height="144" rx="18" fill="#010409" stroke="#30363D" />
+      <image href="${escapeXml(track.albumArtDataUri)}" x="30" y="56" width="144" height="144" preserveAspectRatio="xMidYMid slice" clip-path="url(#album-art-clip)" />`;
+  }
+
+  return `
+    <rect x="30" y="56" width="144" height="144" rx="18" fill="#111827" stroke="#30363D" />
+    ${renderSpotifyGlyph(68, 92, 68)}
+    <text x="102" y="176" text-anchor="middle" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">No cover art</text>`;
+}
+
+function renderWaveform(model, isPlaying) {
+  const startX = 208;
+  const baseline = 188;
+  const barWidth = 5;
+  const gap = 4;
+
+  return model.bars
+    .map((bar, index) => {
+      const x = startX + index * (barWidth + gap);
+      const currentHeight = bar.heights[0];
+      const y = baseline - currentHeight;
+      const heightValues = bar.heights.join(";");
+      const yValues = bar.heights.map((value) => baseline - value).join(";");
+      const animation = isPlaying
+        ? `
+        <animate attributeName="height" values="${heightValues}" keyTimes="${model.keyTimes}" dur="${model.loopDuration}s" repeatCount="indefinite" calcMode="linear" />
+        <animate attributeName="y" values="${yValues}" keyTimes="${model.keyTimes}" dur="${model.loopDuration}s" repeatCount="indefinite" calcMode="linear" />`
+        : "";
+
+      return `
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${currentHeight}" rx="2.5" fill="url(#wave-gradient)" opacity="${bar.opacity}">${animation}
+        </rect>`;
+    })
+    .join("");
 }
 
 function renderCard({
   badgeColor,
   badgeText,
   footerText,
+  isPlaying,
   lineOne,
   lineTwo,
   progress,
   progressColor,
   title,
+  track,
 }) {
-  const safeTitle = escapeXml(truncate(title, 34));
-  const safeLineOne = escapeXml(truncate(lineOne, 48));
-  const safeLineTwo = escapeXml(truncate(lineTwo, 56));
-  const safeFooter = escapeXml(truncate(footerText, 60));
-  const width = 720;
-  const height = 220;
-  const progressWidth = Math.max(0, Math.min(1, progress)) * 420;
+  const safeTitle = escapeXml(truncate(title, 30));
+  const safeLineOne = escapeXml(truncate(lineOne, 42));
+  const safeLineTwo = escapeXml(truncate(lineTwo, 54));
+  const safeFooter = escapeXml(truncate(footerText, 36));
+  const safeStatus = escapeXml(badgeText);
+  const width = 780;
+  const height = 256;
+  const progressWidth = Math.max(0, Math.min(1, progress)) * 456;
+  const waveform = track && track.waveform ? track.waveform : buildWaveformModel({ analysis: null, isPlaying, progressMs: 0, seedKey: title });
+  const progressX = 208;
+  const progressY = 214;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">${safeTitle}</title>
   <desc id="desc">${safeLineOne} - ${safeLineTwo}</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="720" y2="220" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0B1220" />
-      <stop offset="1" stop-color="#111C34" />
+    <linearGradient id="card-bg" x1="18" y1="18" x2="762" y2="238" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D1117" />
+      <stop offset="1" stop-color="#111827" />
     </linearGradient>
-    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="wave-gradient" x1="208" y1="164" x2="690" y2="164" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1DB954" />
+      <stop offset="1" stop-color="#2EA043" />
+    </linearGradient>
+    <linearGradient id="progress-gradient" x1="208" y1="214" x2="664" y2="214" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1DB954" />
+      <stop offset="1" stop-color="#3FB950" />
+    </linearGradient>
+    <radialGradient id="green-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(650 54) rotate(132.247) scale(170 210)">
       <stop stop-color="#1DB954" stop-opacity="0.18" />
-      <stop offset="1" stop-color="#60A5FA" stop-opacity="0.1" />
-    </linearGradient>
+      <stop offset="1" stop-color="#1DB954" stop-opacity="0" />
+    </radialGradient>
+    <clipPath id="album-art-clip">
+      <rect x="30" y="56" width="144" height="144" rx="18" />
+    </clipPath>
   </defs>
-  <rect width="${width}" height="${height}" rx="26" fill="url(#bg)" />
-  <circle cx="620" cy="32" r="116" fill="url(#glow)" />
-  <circle cx="662" cy="182" r="70" fill="#1D4ED8" fill-opacity="0.08" />
-  <rect x="28" y="28" width="664" height="164" rx="20" fill="#0F172A" fill-opacity="0.52" stroke="#1E293B" />
-  ${renderSpotifyGlyph()}
-  <text x="126" y="76" fill="#1DB954" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="0.18em">SPOTIFY</text>
-  <rect x="532" y="54" width="132" height="34" rx="17" fill="${badgeColor}" fill-opacity="0.18" stroke="${badgeColor}" />
-  <text x="598" y="76" fill="${badgeColor}" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">${escapeXml(
-    badgeText
-  )}</text>
-  <text x="126" y="112" fill="#F8FAFC" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">${safeTitle}</text>
-  <text x="126" y="145" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="18">${safeLineOne}</text>
-  <text x="126" y="170" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="15">${safeLineTwo}</text>
-  <rect x="126" y="182" width="420" height="8" rx="4" fill="#1E293B" />
-  <rect x="126" y="182" width="${progressWidth}" height="8" rx="4" fill="${progressColor}" />
-  <text x="565" y="190" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="13">${safeFooter}</text>
+  <rect width="${width}" height="${height}" rx="24" fill="#0D1117" />
+  <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="23" fill="#0D1117" stroke="#30363D" />
+  <rect x="18" y="18" width="744" height="220" rx="22" fill="url(#card-bg)" />
+  <circle cx="664" cy="44" r="126" fill="url(#green-glow)" />
+  <circle cx="720" cy="196" r="74" fill="#1D4ED8" fill-opacity="0.08" />
+  <rect x="18" y="18" width="744" height="220" rx="22" fill="#FFFFFF" fill-opacity="0.015" stroke="#161B22" />
+  ${renderAlbumArt(track || {})}
+  <text x="208" y="52" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="0.08em">NOW PLAYING ON</text>
+  ${renderSpotifyGlyph(346, 24, 28)}
+  <rect x="634" y="32" width="100" height="34" rx="17" fill="${badgeColor}" fill-opacity="0.13" stroke="${badgeColor}" />
+  <circle cx="655" cy="49" r="4.5" fill="${badgeColor}">
+    ${
+      isPlaying
+        ? '<animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />'
+        : ""
+    }
+  </circle>
+  <text x="682" y="54" text-anchor="middle" fill="${badgeColor}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">${safeStatus}</text>
+  <text x="208" y="94" fill="#F0F6FC" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">${safeTitle}</text>
+  <text x="208" y="126" fill="#C9D1D9" font-family="Segoe UI, Arial, sans-serif" font-size="20">${safeLineOne}</text>
+  <text x="208" y="150" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="15">${safeLineTwo}</text>
+  <rect x="208" y="162" width="486" height="1" fill="#30363D" />
+  ${renderWaveform(waveform, isPlaying)}
+  <rect x="${progressX}" y="${progressY}" width="456" height="4" rx="2" fill="#21262D" />
+  <rect x="${progressX}" y="${progressY}" width="${progressWidth}" height="4" rx="2" fill="url(#progress-gradient)" />
+  <circle cx="${progressX + progressWidth}" cy="${progressY + 2}" r="4" fill="${progressColor}" ${isPlaying ? 'opacity="1"' : 'opacity="0.85"'} />
+  <text x="208" y="235" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">${safeFooter}</text>
 </svg>`;
 }
 
 function renderNowPlayingCard(track) {
   const progress =
-    track.durationMs > 0 ? track.progressMs / track.durationMs : 0;
-  const statusText = track.isPlaying ? "LISTENING NOW" : "PAUSED";
-  const statusColor = track.isPlaying ? "#1DB954" : "#F59E0B";
+    track.durationMs > 0 ? clamp(track.progressMs / track.durationMs, 0, 1) : 0;
+  const statusText = track.isPlaying ? "LIVE" : "PAUSED";
+  const statusColor = track.isPlaying ? "#1DB954" : "#D29922";
   const timing = `${formatTime(track.progressMs)} / ${formatTime(track.durationMs)}`;
-  const footer = track.album ? `${track.album} • ${timing}` : timing;
+  const footer = track.album ? `${track.album} | ${timing}` : timing;
 
   return renderCard({
     badgeColor: statusColor,
     badgeText: statusText,
     footerText: footer,
+    isPlaying: track.isPlaying,
     lineOne: track.artists || "Unknown artist",
-    lineTwo: "Current Spotify session",
+    lineTwo: track.album || "Spotify current session",
     progress,
     progressColor: statusColor,
     title: track.title || "Unknown track",
+    track,
   });
 }
 
 function renderIdleCard() {
+  const track = {
+    album: "No active playback",
+    albumArtDataUri: "",
+    artists: "Spotify is quiet right now",
+    durationMs: 0,
+    isPlaying: false,
+    progressMs: 0,
+    title: "Nothing is playing at the moment",
+    waveform: buildWaveformModel({
+      analysis: null,
+      isPlaying: false,
+      progressMs: 0,
+      seedKey: "spotify-idle",
+    }),
+  };
+
   return renderCard({
-    badgeColor: "#64748B",
-    badgeText: "OFFLINE",
-    footerText: "Spotify is not playing anything right now",
-    lineOne: "No active track at the moment",
-    lineTwo: "Come back later to catch what is playing",
+    badgeColor: "#6E7681",
+    badgeText: "IDLE",
+    footerText: "Open Spotify and play something to light this up",
+    isPlaying: false,
+    lineOne: "No active track right now",
+    lineTwo: "Come back later for the current song",
     progress: 0,
-    progressColor: "#64748B",
-    title: "Currently offline on Spotify",
+    progressColor: "#6E7681",
+    title: track.title,
+    track,
   });
 }
 
 function renderErrorCard(message) {
-  return renderCard({
-    badgeColor: "#EF4444",
-    badgeText: "SETUP NEEDED",
-    footerText: "Finish the Spotify and Vercel setup to enable this card",
-    lineOne: message,
-    lineTwo: "Visit /api/spotify/login after deploying to Vercel",
-    progress: 0,
-    progressColor: "#EF4444",
+  const track = {
+    album: "Finish setup in Vercel",
+    albumArtDataUri: "",
+    artists: "Spotify widget needs one more step",
+    durationMs: 0,
+    isPlaying: false,
+    progressMs: 0,
     title: "Spotify widget not configured",
+    waveform: buildWaveformModel({
+      analysis: null,
+      isPlaying: false,
+      progressMs: 0,
+      seedKey: `spotify-error|${message}`,
+    }),
+  };
+
+  return renderCard({
+    badgeColor: "#F85149",
+    badgeText: "CHECK SETUP",
+    footerText: "Visit /api/spotify/login if you need to reconnect Spotify",
+    isPlaying: false,
+    lineOne: message,
+    lineTwo: "Then redeploy the project in Vercel",
+    progress: 0,
+    progressColor: "#F85149",
+    title: track.title,
+    track,
   });
 }
 
@@ -260,3 +635,4 @@ module.exports = {
   renderIdleCard,
   renderNowPlayingCard,
 };
+
