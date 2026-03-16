@@ -32,7 +32,7 @@
 </p>
 
 ```html
-<img src="https://YOUR_VERCEL_APP.vercel.app/api/spotify" alt="Spotify Now Playing" />
+<img src="https://chhabhaya-manan.vercel.app/api/spotify" alt="Spotify Now Playing" />
 ```
 
 ## &#128187; `manan.profile.yml`
