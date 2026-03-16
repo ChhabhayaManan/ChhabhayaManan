@@ -28,12 +28,8 @@
 </p>
 
 <p align="center">
-  After deploying this repo to Vercel, replace <code>YOUR_VERCEL_APP</code> below to show your live track card.
+  <img width="100%" src="https://chhabhaya-manan.vercel.app/api/spotify" alt="Spotify Now Playing" />
 </p>
-
-```html
-<img src="https://chhabhaya-manan.vercel.app/api/spotify" alt="Spotify Now Playing" />
-```
 
 ## &#128187; `manan.profile.yml`
 
@@ -127,3 +123,7 @@ contact:
 <p align="center">
   <i>Building strong backends, exploring AI workflows, and learning with every project.</i>
 </p>
+
+
+
+

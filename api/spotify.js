@@ -9,7 +9,7 @@ module.exports = async function handler(req, res) {
   res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
   res.setHeader(
     "Cache-Control",
-    "public, max-age=0, s-maxage=30, stale-while-revalidate=60"
+    "public, max-age=0, s-maxage=10, stale-while-revalidate=20"
   );
 
   const refreshToken = process.env.SPOTIFY_REFRESH_TOKEN;
@@ -40,3 +40,4 @@ module.exports = async function handler(req, res) {
       .send(renderErrorCard("Spotify authentication failed. Refresh the token."));
   }
 };
+

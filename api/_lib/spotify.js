@@ -80,11 +80,9 @@ function pickAlbumArt(images) {
     return "";
   }
 
-  const preferred = [...images].sort((left, right) => {
-    const leftDelta = Math.abs((left.height || 0) - 160);
-    const rightDelta = Math.abs((right.height || 0) - 160);
-    return leftDelta - rightDelta;
-  });
+  const preferred = [...images].sort(
+    (left, right) => (right.height || 0) - (left.height || 0)
+  );
 
   return preferred[0] && preferred[0].url ? preferred[0].url : images[0].url || "";
 }
@@ -216,6 +214,61 @@ function getBeatStrength(segments, start, duration, confidence) {
   return clamp((loudnessWeight + confidenceWeight) * durationWeight, 0.16, 1);
 }
 
+function buildKeyTimes(durations) {
+  const totalDuration = durations.reduce((sum, value) => sum + value, 0);
+  if (!totalDuration) {
+    return null;
+  }
+
+  const keyTimes = [0];
+  let elapsed = 0;
+  for (const duration of durations) {
+    elapsed += duration;
+    keyTimes.push(elapsed / totalDuration);
+  }
+
+  return {
+    keyTimes: keyTimes.map((value) => value.toFixed(4)).join(";"),
+    totalDuration,
+  };
+}
+
+function getPhaseRatio(loopDuration, phaseOffset) {
+  if (!loopDuration) {
+    return 0;
+  }
+
+  return clamp(phaseOffset / loopDuration, 0, 0.9999);
+}
+
+function interpolateFromFrames(values, keyTimesString, phaseRatio) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return 0;
+  }
+
+  const keyTimes = String(keyTimesString)
+    .split(";")
+    .map((value) => Number(value));
+
+  for (let index = 0; index < keyTimes.length - 1; index += 1) {
+    const start = keyTimes[index];
+    const end = keyTimes[index + 1];
+
+    if (phaseRatio < start || phaseRatio > end) {
+      continue;
+    }
+
+    const range = Math.max(end - start, 0.0001);
+    const localPhase = clamp((phaseRatio - start) / range, 0, 1);
+    const from = Number(values[index] ?? values[0] ?? 0);
+    const to = Number(values[index + 1] ?? values[index] ?? from);
+
+    return from + (to - from) * localPhase;
+  }
+
+  return Number(values[0] ?? 0);
+}
+
 function buildBeatFrames(analysis, progressMs) {
   if (
     !analysis ||
@@ -235,16 +288,16 @@ function buildBeatFrames(analysis, progressMs) {
     return null;
   }
 
-  let startIndex = beats.findIndex(
+  let currentIndex = beats.findIndex(
     (beat) => Number(beat.start || 0) + Number(beat.duration || 0) > progressSeconds
   );
-  if (startIndex === -1) {
-    startIndex = 0;
+  if (currentIndex === -1) {
+    currentIndex = 0;
   }
 
   const selectedBeats = [];
-  for (let index = 0; index < 10; index += 1) {
-    selectedBeats.push(beats[(startIndex + index) % beats.length]);
+  for (let index = 0; index < 12; index += 1) {
+    selectedBeats.push(beats[(currentIndex + index) % beats.length]);
   }
 
   const strengthsBase = selectedBeats.map((beat) =>
@@ -258,22 +311,24 @@ function buildBeatFrames(analysis, progressMs) {
   const durations = selectedBeats.map((beat) =>
     clamp(Number(beat.duration || 0.48), 0.22, 1.15)
   );
-  const loopDuration = durations.reduce((sum, value) => sum + value, 0);
+  const timing = buildKeyTimes(durations);
 
-  if (!loopDuration) {
+  if (!timing) {
     return null;
   }
 
-  const keyTimes = [0];
-  let elapsed = 0;
-  for (const duration of durations) {
-    elapsed += duration;
-    keyTimes.push(elapsed / loopDuration);
-  }
+  const currentBeat = selectedBeats[0];
+  const currentBeatDuration = clamp(Number(currentBeat.duration || 0.48), 0.22, 1.15);
+  const phaseOffset = clamp(
+    progressSeconds - Number(currentBeat.start || 0),
+    0,
+    currentBeatDuration
+  );
 
   return {
-    keyTimes: keyTimes.map((value) => value.toFixed(4)).join(";"),
-    loopDuration: Number(loopDuration.toFixed(2)),
+    keyTimes: timing.keyTimes,
+    loopDuration: Number(timing.totalDuration.toFixed(2)),
+    phaseOffset: Number(phaseOffset.toFixed(3)),
     strengths: [...strengthsBase, strengthsBase[0]],
   };
 }
@@ -292,17 +347,18 @@ function buildFallbackFrames(seedKey, progressMs) {
       (index / steps).toFixed(4)
     ).join(";"),
     loopDuration: 2.8,
+    phaseOffset: Number(((progressMs / 1000) % 2.8).toFixed(3)),
     strengths: [...strengthsBase, strengthsBase[0]],
   };
 }
 
 function buildWaveformModel({ analysis, isPlaying, progressMs, seedKey }) {
   const frames =
-    (isPlaying ? buildBeatFrames(analysis, progressMs) : null) ||
-    buildFallbackFrames(seedKey, progressMs);
-  const barCount = 54;
+    buildBeatFrames(analysis, progressMs) || buildFallbackFrames(seedKey, progressMs);
+  const barCount = 60;
   const minHeight = isPlaying ? 8 : 6;
   const maxHeight = isPlaying ? 54 : 24;
+  const phaseRatio = getPhaseRatio(frames.loopDuration, frames.phaseOffset || 0);
 
   const bars = Array.from({ length: barCount }, (_, index) => {
     const phase = index / Math.max(1, barCount - 1);
@@ -316,15 +372,20 @@ function buildWaveformModel({ analysis, isPlaying, progressMs, seedKey }) {
     });
 
     return {
+      currentHeight: Math.round(
+        interpolateFromFrames(heights, frames.keyTimes, phaseRatio)
+      ),
       heights,
       opacity: (0.44 + phase * 0.4).toFixed(2),
     };
   });
 
   return {
+    animate: isPlaying,
     bars,
     keyTimes: frames.keyTimes,
     loopDuration: frames.loopDuration,
+    phaseOffset: frames.phaseOffset || 0,
   };
 }
 
@@ -426,37 +487,40 @@ function renderSpotifyGlyph(x, y, size) {
 function renderAlbumArt(track) {
   if (track.albumArtDataUri) {
     return `
-      <rect x="30" y="56" width="144" height="144" rx="18" fill="#010409" stroke="#30363D" />
-      <image href="${escapeXml(track.albumArtDataUri)}" x="30" y="56" width="144" height="144" preserveAspectRatio="xMidYMid slice" clip-path="url(#album-art-clip)" />`;
+      <rect x="32" y="54" width="170" height="170" rx="12" fill="#010409" stroke="#30363D" />
+      <image href="${escapeXml(track.albumArtDataUri)}" x="32" y="54" width="170" height="170" preserveAspectRatio="xMidYMid slice" image-rendering="optimizeQuality" clip-path="url(#album-art-clip)" />`;
   }
 
   return `
-    <rect x="30" y="56" width="144" height="144" rx="18" fill="#111827" stroke="#30363D" />
-    ${renderSpotifyGlyph(68, 92, 68)}
-    <text x="102" y="176" text-anchor="middle" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">No cover art</text>`;
+    <rect x="32" y="54" width="170" height="170" rx="12" fill="#111827" stroke="#30363D" />
+    ${renderSpotifyGlyph(83, 104, 68)}
+    <text x="117" y="197" text-anchor="middle" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">No cover art</text>`;
 }
 
-function renderWaveform(model, isPlaying) {
-  const startX = 208;
-  const baseline = 188;
-  const barWidth = 5;
-  const gap = 4;
+function renderWaveform(model) {
+  const startX = 228;
+  const baseline = 202;
+  const barWidth = 6;
+  const gap = 3;
+  const animationBegin = model.animate
+    ? ` begin="-${Number(model.phaseOffset || 0).toFixed(3)}s"`
+    : "";
 
   return model.bars
     .map((bar, index) => {
       const x = startX + index * (barWidth + gap);
-      const currentHeight = bar.heights[0];
+      const currentHeight = Math.max(2, Number(bar.currentHeight || bar.heights[0] || 0));
       const y = baseline - currentHeight;
       const heightValues = bar.heights.join(";");
       const yValues = bar.heights.map((value) => baseline - value).join(";");
-      const animation = isPlaying
+      const animation = model.animate
         ? `
-        <animate attributeName="height" values="${heightValues}" keyTimes="${model.keyTimes}" dur="${model.loopDuration}s" repeatCount="indefinite" calcMode="linear" />
-        <animate attributeName="y" values="${yValues}" keyTimes="${model.keyTimes}" dur="${model.loopDuration}s" repeatCount="indefinite" calcMode="linear" />`
+        <animate attributeName="height" values="${heightValues}" keyTimes="${model.keyTimes}" dur="${model.loopDuration}s" repeatCount="indefinite" calcMode="linear"${animationBegin} />
+        <animate attributeName="y" values="${yValues}" keyTimes="${model.keyTimes}" dur="${model.loopDuration}s" repeatCount="indefinite" calcMode="linear"${animationBegin} />`
         : "";
 
       return `
-        <rect x="${x}" y="${y}" width="${barWidth}" height="${currentHeight}" rx="2.5" fill="url(#wave-gradient)" opacity="${bar.opacity}">${animation}
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${currentHeight}" rx="1" fill="url(#wave-gradient)" opacity="${bar.opacity}">${animation}
         </rect>`;
     })
     .join("");
@@ -479,65 +543,65 @@ function renderCard({
   const safeLineTwo = escapeXml(truncate(lineTwo, 54));
   const safeFooter = escapeXml(truncate(footerText, 36));
   const safeStatus = escapeXml(badgeText);
-  const width = 780;
-  const height = 256;
-  const progressWidth = Math.max(0, Math.min(1, progress)) * 456;
+  const width = 900;
+  const height = 284;
+  const progressWidth = Math.max(0, Math.min(1, progress)) * 560;
   const waveform = track && track.waveform ? track.waveform : buildWaveformModel({ analysis: null, isPlaying, progressMs: 0, seedKey: title });
-  const progressX = 208;
-  const progressY = 214;
+  const progressX = 228;
+  const progressY = 230;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">${safeTitle}</title>
   <desc id="desc">${safeLineOne} - ${safeLineTwo}</desc>
   <defs>
-    <linearGradient id="card-bg" x1="18" y1="18" x2="762" y2="238" gradientUnits="userSpaceOnUse">
+    <linearGradient id="card-bg" x1="16" y1="16" x2="884" y2="268" gradientUnits="userSpaceOnUse">
       <stop stop-color="#0D1117" />
       <stop offset="1" stop-color="#111827" />
     </linearGradient>
-    <linearGradient id="wave-gradient" x1="208" y1="164" x2="690" y2="164" gradientUnits="userSpaceOnUse">
+    <linearGradient id="wave-gradient" x1="228" y1="176" x2="788" y2="176" gradientUnits="userSpaceOnUse">
       <stop stop-color="#1DB954" />
       <stop offset="1" stop-color="#2EA043" />
     </linearGradient>
-    <linearGradient id="progress-gradient" x1="208" y1="214" x2="664" y2="214" gradientUnits="userSpaceOnUse">
+    <linearGradient id="progress-gradient" x1="228" y1="230" x2="788" y2="230" gradientUnits="userSpaceOnUse">
       <stop stop-color="#1DB954" />
       <stop offset="1" stop-color="#3FB950" />
     </linearGradient>
-    <radialGradient id="green-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(650 54) rotate(132.247) scale(170 210)">
+    <radialGradient id="green-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(744 46) rotate(132.247) scale(188 228)">
       <stop stop-color="#1DB954" stop-opacity="0.18" />
       <stop offset="1" stop-color="#1DB954" stop-opacity="0" />
     </radialGradient>
     <clipPath id="album-art-clip">
-      <rect x="30" y="56" width="144" height="144" rx="18" />
+      <rect x="32" y="54" width="170" height="170" rx="12" />
     </clipPath>
   </defs>
-  <rect width="${width}" height="${height}" rx="24" fill="#0D1117" />
-  <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="23" fill="#0D1117" stroke="#30363D" />
-  <rect x="18" y="18" width="744" height="220" rx="22" fill="url(#card-bg)" />
-  <circle cx="664" cy="44" r="126" fill="url(#green-glow)" />
-  <circle cx="720" cy="196" r="74" fill="#1D4ED8" fill-opacity="0.08" />
-  <rect x="18" y="18" width="744" height="220" rx="22" fill="#FFFFFF" fill-opacity="0.015" stroke="#161B22" />
+  <rect width="${width}" height="${height}" rx="16" fill="#0D1117" />
+  <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="15" fill="#0D1117" stroke="#30363D" />
+  <rect x="16" y="16" width="868" height="252" rx="14" fill="url(#card-bg)" />
+  <circle cx="756" cy="42" r="138" fill="url(#green-glow)" />
+  <circle cx="828" cy="218" r="84" fill="#1D4ED8" fill-opacity="0.08" />
+  <rect x="16" y="16" width="868" height="252" rx="14" fill="#FFFFFF" fill-opacity="0.015" stroke="#161B22" />
   ${renderAlbumArt(track || {})}
-  <text x="208" y="52" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="0.08em">NOW PLAYING ON</text>
-  ${renderSpotifyGlyph(346, 24, 28)}
-  <rect x="634" y="32" width="100" height="34" rx="17" fill="${badgeColor}" fill-opacity="0.13" stroke="${badgeColor}" />
-  <circle cx="655" cy="49" r="4.5" fill="${badgeColor}">
+  <text x="228" y="54" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="0.08em">NOW PLAYING ON</text>
+  ${renderSpotifyGlyph(366, 26, 28)}
+  <rect x="748" y="34" width="116" height="34" rx="12" fill="${badgeColor}" fill-opacity="0.13" stroke="${badgeColor}" />
+  <circle cx="772" cy="51" r="4.5" fill="${badgeColor}">
     ${
       isPlaying
         ? '<animate attributeName="opacity" values="1;0.3;1" dur="1.4s" repeatCount="indefinite" />'
         : ""
     }
   </circle>
-  <text x="682" y="54" text-anchor="middle" fill="${badgeColor}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">${safeStatus}</text>
-  <text x="208" y="94" fill="#F0F6FC" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700">${safeTitle}</text>
-  <text x="208" y="126" fill="#C9D1D9" font-family="Segoe UI, Arial, sans-serif" font-size="20">${safeLineOne}</text>
-  <text x="208" y="150" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="15">${safeLineTwo}</text>
-  <rect x="208" y="162" width="486" height="1" fill="#30363D" />
-  ${renderWaveform(waveform, isPlaying)}
-  <rect x="${progressX}" y="${progressY}" width="456" height="4" rx="2" fill="#21262D" />
+  <text x="808" y="56" text-anchor="middle" fill="${badgeColor}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">${safeStatus}</text>
+  <text x="228" y="100" fill="#F0F6FC" font-family="Segoe UI, Arial, sans-serif" font-size="36" font-weight="700">${safeTitle}</text>
+  <text x="228" y="138" fill="#C9D1D9" font-family="Segoe UI, Arial, sans-serif" font-size="21">${safeLineOne}</text>
+  <text x="228" y="164" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="15">${safeLineTwo}</text>
+  <rect x="228" y="176" width="560" height="1" fill="#30363D" />
+  ${renderWaveform(waveform)}
+  <rect x="${progressX}" y="${progressY}" width="560" height="4" rx="2" fill="#21262D" />
   <rect x="${progressX}" y="${progressY}" width="${progressWidth}" height="4" rx="2" fill="url(#progress-gradient)" />
   <circle cx="${progressX + progressWidth}" cy="${progressY + 2}" r="4" fill="${progressColor}" ${isPlaying ? 'opacity="1"' : 'opacity="0.85"'} />
-  <text x="208" y="235" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">${safeFooter}</text>
+  <text x="228" y="254" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">${safeFooter}</text>
 </svg>`;
 }
 
@@ -547,7 +611,7 @@ function renderNowPlayingCard(track) {
   const statusText = track.isPlaying ? "LIVE" : "PAUSED";
   const statusColor = track.isPlaying ? "#1DB954" : "#D29922";
   const timing = `${formatTime(track.progressMs)} / ${formatTime(track.durationMs)}`;
-  const footer = track.album ? `${track.album} | ${timing}` : timing;
+  const footer = timing;
 
   return renderCard({
     badgeColor: statusColor,
@@ -555,7 +619,7 @@ function renderNowPlayingCard(track) {
     footerText: footer,
     isPlaying: track.isPlaying,
     lineOne: track.artists || "Unknown artist",
-    lineTwo: track.album || "Spotify current session",
+    lineTwo: track.isPlaying ? "Currently spinning on Spotify" : "Playback paused on Spotify",
     progress,
     progressColor: statusColor,
     title: track.title || "Unknown track",
@@ -635,4 +699,12 @@ module.exports = {
   renderIdleCard,
   renderNowPlayingCard,
 };
+
+
+
+
+
+
+
+
 
