@@ -494,12 +494,12 @@ function renderAlbumArt(track) {
   return `
     <rect x="32" y="54" width="170" height="170" rx="12" fill="#111827" stroke="#30363D" />
     ${renderSpotifyGlyph(83, 104, 68)}
-    <text x="117" y="197" text-anchor="middle" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">No cover art</text>`;
+    <text x="117" y="197" text-anchor="middle" fill="#8B949E" font-family="'Avenir Next', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif" font-size="14">No cover art</text>`;
 }
 
 function renderWaveform(model) {
   const startX = 228;
-  const baseline = 202;
+  const baseline = 196;
   const barWidth = 6;
   const gap = 3;
   const animationBegin = model.animate
@@ -543,22 +543,20 @@ function renderCard({
   const safeLineTwo = escapeXml(truncate(lineTwo, 54));
   const safeFooter = escapeXml(truncate(footerText, 36));
   const safeStatus = escapeXml(badgeText);
+  const hasLineTwo = Boolean(lineTwo && lineTwo.trim());
   const width = 900;
   const height = 284;
   const progressWidth = Math.max(0, Math.min(1, progress)) * 560;
   const waveform = track && track.waveform ? track.waveform : buildWaveformModel({ analysis: null, isPlaying, progressMs: 0, seedKey: title });
   const progressX = 228;
-  const progressY = 230;
+  const progressY = 220;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">${safeTitle}</title>
-  <desc id="desc">${safeLineOne} - ${safeLineTwo}</desc>
+  <desc id="desc">${hasLineTwo ? `${safeLineOne} - ${safeLineTwo}` : safeLineOne}</desc>
   <defs>
-    <linearGradient id="card-bg" x1="16" y1="16" x2="884" y2="268" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0D1117" />
-      <stop offset="1" stop-color="#111827" />
-    </linearGradient>
+
     <linearGradient id="wave-gradient" x1="228" y1="176" x2="788" y2="176" gradientUnits="userSpaceOnUse">
       <stop stop-color="#1DB954" />
       <stop offset="1" stop-color="#2EA043" />
@@ -567,23 +565,16 @@ function renderCard({
       <stop stop-color="#1DB954" />
       <stop offset="1" stop-color="#3FB950" />
     </linearGradient>
-    <radialGradient id="green-glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(744 46) rotate(132.247) scale(188 228)">
-      <stop stop-color="#1DB954" stop-opacity="0.18" />
-      <stop offset="1" stop-color="#1DB954" stop-opacity="0" />
-    </radialGradient>
+
     <clipPath id="album-art-clip">
       <rect x="32" y="54" width="170" height="170" rx="12" />
     </clipPath>
   </defs>
   <rect width="${width}" height="${height}" rx="16" fill="#0D1117" />
   <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="15" fill="#0D1117" stroke="#30363D" />
-  <rect x="16" y="16" width="868" height="252" rx="14" fill="url(#card-bg)" />
-  <circle cx="756" cy="42" r="138" fill="url(#green-glow)" />
-  <circle cx="828" cy="218" r="84" fill="#1D4ED8" fill-opacity="0.08" />
-  <rect x="16" y="16" width="868" height="252" rx="14" fill="#FFFFFF" fill-opacity="0.015" stroke="#161B22" />
+  <rect x="16" y="16" width="868" height="252" rx="14" fill="#111827" />
+  <rect x="16" y="16" width="868" height="252" rx="14" fill="none" stroke="#161B22" />
   ${renderAlbumArt(track || {})}
-  <text x="228" y="54" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="0.08em">NOW PLAYING ON</text>
-  ${renderSpotifyGlyph(366, 26, 28)}
   <rect x="748" y="34" width="116" height="34" rx="12" fill="${badgeColor}" fill-opacity="0.13" stroke="${badgeColor}" />
   <circle cx="772" cy="51" r="4.5" fill="${badgeColor}">
     ${
@@ -592,16 +583,16 @@ function renderCard({
         : ""
     }
   </circle>
-  <text x="808" y="56" text-anchor="middle" fill="${badgeColor}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">${safeStatus}</text>
-  <text x="228" y="100" fill="#F0F6FC" font-family="Segoe UI, Arial, sans-serif" font-size="36" font-weight="700">${safeTitle}</text>
-  <text x="228" y="138" fill="#C9D1D9" font-family="Segoe UI, Arial, sans-serif" font-size="21">${safeLineOne}</text>
-  <text x="228" y="164" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="15">${safeLineTwo}</text>
-  <rect x="228" y="176" width="560" height="1" fill="#30363D" />
+  <text x="808" y="56" text-anchor="middle" fill="${badgeColor}" font-family="'Avenir Next', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif" font-size="13" font-weight="600">${safeStatus}</text>
+  <text x="228" y="88" fill="#F0F6FC" font-family="'Avenir Next', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif" font-size="36" font-weight="600">${safeTitle}</text>
+  <text x="228" y="124" fill="#C9D1D9" font-family="'Avenir Next', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif" font-size="21">${safeLineOne}</text>
+  ${hasLineTwo ? `<text x="228" y="150" fill="#8B949E" font-family="'Avenir Next', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif" font-size="15">${safeLineTwo}</text>` : ""}
+  <rect x="228" y="${hasLineTwo ? 164 : 142}" width="560" height="1" fill="#30363D" />
   ${renderWaveform(waveform)}
   <rect x="${progressX}" y="${progressY}" width="560" height="4" rx="2" fill="#21262D" />
   <rect x="${progressX}" y="${progressY}" width="${progressWidth}" height="4" rx="2" fill="url(#progress-gradient)" />
   <circle cx="${progressX + progressWidth}" cy="${progressY + 2}" r="4" fill="${progressColor}" ${isPlaying ? 'opacity="1"' : 'opacity="0.85"'} />
-  <text x="228" y="254" fill="#8B949E" font-family="Segoe UI, Arial, sans-serif" font-size="14">${safeFooter}</text>
+  <text x="228" y="246" fill="#8B949E" font-family="'Avenir Next', 'Helvetica Neue', 'Segoe UI', Arial, sans-serif" font-size="14">${safeFooter}</text>
 </svg>`;
 }
 
@@ -619,7 +610,7 @@ function renderNowPlayingCard(track) {
     footerText: footer,
     isPlaying: track.isPlaying,
     lineOne: track.artists || "Unknown artist",
-    lineTwo: track.isPlaying ? "Currently spinning on Spotify" : "Playback paused on Spotify",
+    lineTwo: "",
     progress,
     progressColor: statusColor,
     title: track.title || "Unknown track",
@@ -699,6 +690,10 @@ module.exports = {
   renderIdleCard,
   renderNowPlayingCard,
 };
+
+
+
+
 
 
 
