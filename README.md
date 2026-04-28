@@ -1,4 +1,4 @@
-<img width="100%" src="https://capsule-render.vercel.app/api?type=rect&height=190&color=0:0f172a,100:2563eb&section=header&text=Manan%20Chhabhaya&fontSize=40&fontColor=ffffff&animation=fadeIn&fontAlignY=42&desc=Backend%20Developer%20%7C%20AI%20Applications%20%7C%20PostgreSQL&descAlignY=68" alt="Profile banner" />
+﻿<img width="100%" src="https://capsule-render.vercel.app/api?type=rect&height=190&color=0:0f172a,100:2563eb&section=header&text=Manan%20Chhabhaya&fontSize=40&fontColor=ffffff&animation=fadeIn&fontAlignY=42&desc=Backend%20Developer%20%7C%20AI%20Applications%20%7C%20PostgreSQL&descAlignY=68" alt="Profile banner" />
 
 <p align="center">
   <a href="https://github.com/ChhabhayaManan">
@@ -21,7 +21,7 @@
   Backend-focused developer interested in Python, FastAPI, PostgreSQL, and AI-powered applications.
 </p>
 
-## &#127911; Spotify
+<!-- ## &#127911; Spotify
 
 <p align="center">
   <img src="https://img.shields.io/badge/Spotify-Currently%20Listening-1DB954?style=for-the-badge&logo=spotify&logoColor=white" alt="Spotify currently listening" />
@@ -29,7 +29,7 @@
 
 <p align="center">
   <img width="100%" src="https://chhabhaya-manan.vercel.app/api/spotify" alt="Spotify Now Playing" />
-</p>
+</p> -->
 
 ## &#128187; `manan.profile.yml`
 
