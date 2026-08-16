@@ -1,6 +1,17 @@
 // Single source of truth for every colour in the profile.
 // GBC discipline: max 4 tones per element, no gradients that aren't banded.
 
+// Wordmark palette, lifted straight out of the spirit art (assets/spirit.svg)
+// so the header, the sprite and the closing banner read as one set.
+export const brand = {
+  bg: '#0d1117',      // GitHub dark canvas
+  face: '#f2ff00',    // electric yellow, the letter face
+  bevel: '#ff7b00',   // orange, the lit edge
+  shadow: '#5c2f00',  // burnt orange, the cast shadow
+  dim: '#3a2a00',     // unlit cells of the charge bar
+  muted: '#f9ff8c',   // pale yellow, the handle
+};
+
 export const PIXEL = 8; // art grid unit, in px
 
 export const sky = {
