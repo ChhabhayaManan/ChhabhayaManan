@@ -1,15 +1,30 @@
 // Single source of truth for every colour in the profile.
 // GBC discipline: max 4 tones per element, no gradients that aren't banded.
 
-// Wordmark palette, lifted straight out of the spirit art (assets/spirit.svg)
-// so the header, the sprite and the closing banner read as one set.
+// Wordmark palette, taken from the Charizard poncho rather than the Pikachu.
+//
+// The closing banner is ~258,000px of #fefd7e lemon and cannot change, so the
+// header deliberately does NOT use yellow — repeating it a third time is what
+// made the page read as "too much yellow". Orange and red are still the
+// spirit art's own colours (.k-d and .k-f), so the page stays one warm family
+// without any hue appearing twice at full strength.
 export const brand = {
   bg: '#0d1117',      // GitHub dark canvas
-  face: '#f2ff00',    // electric yellow, the letter face
-  bevel: '#ff7b00',   // orange, the lit edge
-  shadow: '#5c2f00',  // burnt orange, the cast shadow
-  dim: '#3a2a00',     // unlit cells of the charge bar
-  muted: '#f9ff8c',   // pale yellow, the handle
+  face: '#ff9a3c',    // bright ember, the letter face
+  bevel: '#c70000',   // poncho red, the lit edge
+  shadow: '#4a1200',  // deep char, the cast shadow
+  dim: '#3a1c0a',     // unlit cells of the charge bar
+  muted: '#ffd050',   // amber, the handle
+};
+
+// Pikachu's true colours, sampled from assets/closing.jpg. The spirit art
+// shipped with an acid #f2ff00 that fought the closing's warm gold; these are
+// what it gets retuned to.
+export const pika = {
+  body: '#fff060',
+  shade: '#ffd050',
+  light: '#ffff90',
+  field: '#fefd7e',
 };
 
 export const PIXEL = 8; // art grid unit, in px
