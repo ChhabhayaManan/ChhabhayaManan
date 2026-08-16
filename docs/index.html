@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Route 01 — frame by frame</title>
+<meta name="description" content="Scrub the contribution snake frame by frame. The board is generated from the live GitHub contribution calendar for @ChhabhayaManan.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --canvas:#0d1117; --panel:#0f141b; --border:#21262d; --hair:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --dim:#6e7681;
+    --grass:#4ac26b; --mint:#7fe08a; --pale:#eaffd8; --sky:#4aa8e0;
+    --pixel:'Press Start 2P',monospace; --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#010409;color:var(--text);
+    font-family:var(--mono);font-size:14px;line-height:1.6;
+    display:flex;justify-content:center;padding:32px 16px 72px;
+  }
+  main{width:100%;max-width:940px;display:flex;flex-direction:column;gap:14px}
+
+  .crumb{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:0 4px}
+  .crumb a{color:var(--sky);text-decoration:none}
+  .crumb a:hover{text-decoration:underline}
+  .crumb .dot{width:16px;height:16px;border-radius:50%;background:var(--hair)}
+  .crumb .right{margin-left:auto;font-size:11px;color:var(--dim)}
+
+  .card{border:1px solid var(--hair);border-radius:8px;background:var(--canvas);padding:24px;display:flex;flex-direction:column;gap:20px}
+
+  h1{font:400 15px/1.5 var(--pixel);margin:0;letter-spacing:.5px}
+  h2{font:400 11px/1.5 var(--pixel);margin:0;color:var(--text)}
+  p{margin:0;color:var(--muted);text-wrap:pretty}
+
+  .frame{position:relative;border-radius:2px;overflow:hidden;background:#0b1016;border:1px solid var(--border)}
+  .frame img,.frame canvas{display:block;width:100%;height:auto;image-rendering:pixelated}
+
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .grow{flex:1;min-width:220px}
+
+  button{
+    font:600 11px var(--mono);color:var(--text);background:var(--panel);
+    border:1px solid var(--border);border-radius:4px;padding:7px 12px;cursor:pointer;
+  }
+  button:hover{border-color:var(--grass);color:var(--pale)}
+  button[aria-pressed="true"]{background:#12281a;border-color:var(--grass);color:var(--pale)}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:22px;background:transparent;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:6px;background:#161b22;border:1px solid var(--border);border-radius:2px}
+  input[type=range]::-moz-range-track{height:6px;background:#161b22;border:1px solid var(--border);border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;background:var(--pale);border:2px solid #0d2b14;border-radius:3px}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;background:var(--pale);border:2px solid #0d2b14;border-radius:3px}
+
+  .stats{display:flex;gap:10px;flex-wrap:wrap}
+  .stat{flex:1;min-width:132px;border:1px solid var(--border);border-radius:6px;background:var(--panel);padding:11px 13px}
+  .stat .k{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim)}
+  .stat .v{font:400 13px/1.5 var(--pixel);color:var(--mint);margin-top:6px}
+
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--dim);align-items:center}
+  .swatch{display:inline-flex;align-items:center;gap:6px}
+  .swatch i{width:12px;height:12px;border-radius:2px;display:block}
+
+  .note{font-size:11px;color:var(--dim);line-height:1.7}
+  .note code{color:var(--muted);background:var(--panel);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
+  a{color:var(--sky)}
+  .err{color:#f0885a;font-size:12px}
+</style>
+</head>
+<body>
+<main>
+
+  <div class="crumb">
+    <span class="dot"></span>
+    <a href="https://github.com/ChhabhayaManan">ChhabhayaManan</a><span>/</span>
+    <span style="color:var(--text);font-weight:600">route&nbsp;01</span>
+    <span class="right" id="stamp">loading…</span>
+  </div>
+
+  <div class="card">
+    <div>
+      <h1>Route 01 — the tall grass</h1>
+      <p style="margin-top:10px">
+        The same board the README shows, but scrubbable. Every day with activity is a patch of tall grass;
+        the snake walks the year eating them, growing one segment per patch until it hits its ceiling —
+        after that it sheds a tail cell for every new one it takes.
+      </p>
+    </div>
+
+    <div>
+      <h2>As it appears on the profile</h2>
+      <div class="frame" style="margin-top:12px"><img id="live" alt="Animated contribution snake board" width="880" height="200"></div>
+    </div>
+
+    <div>
+      <h2>Frame by frame</h2>
+      <div class="frame" style="margin-top:12px"><canvas id="board" width="880" height="200"></canvas></div>
+
+      <div class="row" style="margin-top:14px">
+        <button id="play" aria-pressed="false">▶ play</button>
+        <button id="step-b" title="one frame back">◀ step</button>
+        <button id="step-f" title="one frame forward">step ▶</button>
+        <button id="speed" title="playback speed">1×</button>
+        <span class="grow"></span>
+        <span class="note" id="frameLabel">frame 0 / 0</span>
+      </div>
+      <input id="scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Animation frame" style="margin-top:8px">
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">caught</div><div class="v" id="s-caught">—</div></div>
+      <div class="stat"><div class="k">length</div><div class="v" id="s-length">—</div></div>
+      <div class="stat"><div class="k">day</div><div class="v" id="s-date">—</div></div>
+      <div class="stat"><div class="k">contributions</div><div class="v" id="s-total">—</div></div>
+    </div>
+
+    <div class="legend">
+      <span class="swatch"><i style="background:#161b22"></i>no activity</span>
+      <span class="swatch"><i style="background:#1f4a2c"></i>tier 1</span>
+      <span class="swatch"><i style="background:#2f7a41"></i>tier 2</span>
+      <span class="swatch"><i style="background:#4ac26b"></i>tier 3</span>
+      <span class="swatch"><i style="background:#7fe08a"></i>body</span>
+      <span class="swatch"><i style="background:#eaffd8"></i>head</span>
+      <span class="swatch"><i style="background:#3f8f55"></i>shedding</span>
+      <span class="swatch"><i style="background:#12281a"></i>flattened</span>
+    </div>
+
+    <p class="note" id="err"></p>
+
+    <p class="note">
+      Regenerated every 6 hours by <code>.github/workflows/snake.yml</code> and published to the
+      <code>output</code> branch. Public contributions only — private repository activity is not included.
+      Source: <a href="https://github.com/ChhabhayaManan/ChhabhayaManan/blob/main/scripts/snake.mjs">scripts/snake.mjs</a>.
+    </p>
+  </div>
+</main>
+
+<script>
+const OUT = 'https://raw.githubusercontent.com/ChhabhayaManan/ChhabhayaManan/output/';
+const TIERS = ['#161b22', '#1f4a2c', '#2f7a41', '#4ac26b'];
+const HOT = '#a8ecb0', BODY = '#7fe08a', FADE = '#3f8f55', HEAD = '#eaffd8', EYE = '#0d2b14';
+const EATEN = '#12281a', EATEN_EMPTY = '#131820', DOT = '#1c3a24';
+const SKY = ['#123049', '#16405e', '#1b5273'], TURF_EDGE = '#14301d', TURF = '#0f2417';
+const GEO = { cell: 14, gap: 2, x0: 16, y0: 26, w: 880, h: 200 };
+const HOT_FRAMES = 4;
+
+const $ = (id) => document.getElementById(id);
+const ctx = $('board').getContext('2d');
+let D = null, frame = 0, playing = false, speed = 1, raf = 0, acc = 0, last = 0;
+
+// Cheap deterministic noise, mirroring the generator's turf tufts.
+function seeded(seed) { let s = seed; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; }
+
+const getJSON = async (url, ms) => {
+  const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(ms) });
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+};
+
+function adopt(data, svgUrl, sample) {
+  D = data;
+  $('live').src = svgUrl;
+  $('stamp').textContent = new Date(D.generated).toLocaleString() + ' · ' + D.frames + ' frames';
+  $('s-total').textContent = D.total.toLocaleString();
+  $('scrub').max = D.frames - 1;
+  $('err').className = 'note';
+  $('err').textContent = sample ? 'Showing the bundled sample board — the live one has not published yet.' : '';
+  frame = 0;
+  draw();
+}
+
+// The bundled copy paints immediately; the live board from the output branch
+// swaps in behind it if and when it answers. No blank canvas while DNS thinks.
+async function load() {
+  const live = getJSON(OUT + 'snake-data.json', 6000);
+  live.catch(() => {});
+  try {
+    adopt(await getJSON('./snake-data.json', 6000), './snake.svg', true);
+  } catch (e) {
+    $('err').className = 'err';
+    $('err').textContent = 'Could not load the bundled board (' + e.message + ').';
+  }
+  try {
+    const fresh = await live;
+    setPlaying(false);
+    adopt(fresh, OUT + 'snake.svg', false);
+  } catch (e) {
+    if (!D) { $('err').className = 'err'; $('err').textContent = 'Could not load board data (' + e.message + ').'; }
+  }
+}
+
+function cellAt(c, r) { return [GEO.x0 + c * (GEO.cell + GEO.gap), GEO.y0 + r * (GEO.cell + GEO.gap)]; }
+
+function roundRect(x, y, w, h, r, fill) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fill();
+}
+
+function draw() {
+  if (!D) return;
+  const i = Math.min(D.path.length - 1, frame * D.stride);
+
+  // backdrop
+  ctx.fillStyle = SKY[0]; ctx.fillRect(0, 0, GEO.w, 6);
+  ctx.fillStyle = SKY[1]; ctx.fillRect(0, 6, GEO.w, 8);
+  ctx.fillStyle = SKY[2]; ctx.fillRect(0, 14, GEO.w, 8);
+  ctx.fillStyle = '#0d1117'; ctx.fillRect(0, 22, GEO.w, 116);
+  ctx.fillStyle = TURF_EDGE; ctx.fillRect(0, 138, GEO.w, 10);
+  ctx.fillStyle = TURF; ctx.fillRect(0, 148, GEO.w, GEO.h - 148);
+  const rnd = seeded(7);
+  ctx.fillStyle = TURF_EDGE;
+  for (let k = 0; k < 60; k++) ctx.fillRect(Math.floor(rnd() * (GEO.w / 8)) * 8, 132, 8, 8);
+
+  // resting board
+  const state = new Map();
+  for (const c of D.cells) {
+    if (!c) continue;
+    state.set(c[0] * D.rows + c[1], { tier: c[2], count: c[3], date: c[4], fill: TIERS[c[2]] });
+  }
+
+  // Replay the path up to this instant. Mirrors the keyframe ladder the SVG
+  // generator emits: head -> hot -> body -> fade -> flattened.
+  const hot = (D.hotFrames ?? HOT_FRAMES) * D.stride;
+  const fade = (D.fadeFrames ?? 2) * D.stride;
+  for (let j = 0; j <= i; j++) {
+    const [c, r] = D.path[j];
+    const s = state.get(c * D.rows + r);
+    if (!s) continue;
+    const rel = D.releaseAt[j];
+    const gone = rel >= 0 && rel <= i;
+    if (gone && i - rel >= fade) s.fill = s.count > 0 ? EATEN : EATEN_EMPTY;
+    else if (gone) s.fill = FADE;
+    else if (j === i) s.fill = HEAD;
+    else if (i - j <= hot) s.fill = HOT;
+    else s.fill = BODY;
+    s.flat = gone && i - rel >= fade && s.count > 0;
+  }
+
+  for (const [k, s] of state) {
+    const c = Math.floor(k / D.rows), r = k % D.rows;
+    const [x, y] = cellAt(c, r);
+    roundRect(x, y, GEO.cell, GEO.cell, 2, s.fill);
+    if (s.flat) { ctx.fillStyle = DOT; ctx.fillRect(x + 5, y + 5, 4, 4); }
+  }
+
+  // head on top, with eyes
+  const [hc, hr] = D.path[i];
+  const [hx, hy] = cellAt(hc, hr);
+  roundRect(hx, hy, GEO.cell, GEO.cell, 4, HEAD);
+  ctx.fillStyle = EYE;
+  ctx.fillRect(hx + 3, hy + 4, 3, 3);
+  ctx.fillRect(hx + 8, hy + 4, 3, 3);
+
+  // readouts
+  let eaten = 0;
+  for (const e of D.eatenAt) { if (e <= i) eaten++; else break; }
+  $('s-caught').textContent = eaten + '/' + D.foodTotal;
+  const len = Math.min(D.maxLength ?? Infinity, D.startLength + eaten);
+  $('s-length').textContent = len + (len === D.maxLength ? ' max' : '');
+  const cur = state.get(hc * D.rows + hr);
+  $('s-date').textContent = cur && cur.date ? cur.date.slice(5) : '—';
+  $('frameLabel').textContent = 'frame ' + frame + ' / ' + (D.frames - 1);
+  $('scrub').value = frame;
+}
+
+function tick(now) {
+  if (!playing) return;
+  const dt = now - (last || now);
+  last = now;
+  acc += dt * speed;
+  const per = (D.walkSeconds * 1000) / D.frames;
+  while (acc >= per) {
+    acc -= per;
+    frame++;
+    if (frame >= D.frames) { frame = 0; acc = 0; }
+  }
+  draw();
+  raf = requestAnimationFrame(tick);
+}
+
+function setPlaying(v) {
+  playing = v;
+  $('play').textContent = v ? '❚❚ pause' : '▶ play';
+  $('play').setAttribute('aria-pressed', String(v));
+  cancelAnimationFrame(raf);
+  if (v) { last = 0; raf = requestAnimationFrame(tick); }
+}
+
+$('play').onclick = () => setPlaying(!playing);
+$('step-f').onclick = () => { setPlaying(false); frame = Math.min(D.frames - 1, frame + 1); draw(); };
+$('step-b').onclick = () => { setPlaying(false); frame = Math.max(0, frame - 1); draw(); };
+$('speed').onclick = () => {
+  speed = speed === 1 ? 2 : speed === 2 ? 4 : speed === 4 ? 0.5 : 1;
+  $('speed').textContent = speed + '×';
+};
+$('scrub').oninput = (e) => { setPlaying(false); frame = +e.target.value; draw(); };
+document.addEventListener('keydown', (e) => {
+  if (!D) return;
+  if (e.key === ' ') { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === 'ArrowRight') { setPlaying(false); frame = Math.min(D.frames - 1, frame + 1); draw(); }
+  if (e.key === 'ArrowLeft') { setPlaying(false); frame = Math.max(0, frame - 1); draw(); }
+});
+
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+// Generates every static asset the README points at:
+//   assets/banner.svg        880x200  morning route + name signboard
+//   assets/sprite-idle.svg   170x170  the creature, front facing
+//   assets/closing.svg       880x200  same route at dusk
+//   assets/h-*.svg           pixel-type section headings
+//
+// All art is original and placeholder-grade: dimension-correct so real art can
+// be dropped in later without a single layout shift. Run: node scripts/gen-art.mjs
+
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { doc, px, rect, seeded } from './lib/svg.mjs';
+import { text, textWidth } from './lib/font.mjs';
+import { PIXEL, sky, land, dusk, creature, board, ui } from './lib/palette.mjs';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const out = (name, svg) => {
+  const path = resolve(ROOT, 'assets', name);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, svg);
+  console.log(`  ${name}  ${(svg.length / 1024).toFixed(1)} KB`);
+};
+
+// ---------------------------------------------------------------- banner ----
+
+function banner() {
+  const rnd = seeded(7);
+  const p = px(PIXEL);
+  const b = [];
+
+  // Sky, three bands. Never a gradient — banding is the whole aesthetic.
+  b.push(p(0, 0, 110, 4, sky.deep), p(0, 4, 110, 5, sky.far), p(0, 9, 110, 6, sky.near));
+
+  // One large blocky cumulus, stepped so every edge lands on the 8px grid.
+  const cloud = [[3, 52, 9], [4, 49, 15], [5, 47, 19], [6, 45, 23], [7, 44, 25], [8, 43, 27],
+                 [9, 42, 29], [10, 41, 32], [11, 40, 35], [12, 39, 38], [13, 38, 41], [14, 37, 44]];
+  cloud.forEach(([y, x, w]) => b.push(p(x, y, w, 1, sky.cloud)));
+  [[6, 11, 9], [7, 9, 13]].forEach(([y, x, w]) => b.push(p(x, y, w, 1, sky.cloudShade)));
+
+  // A bird, two pixels of it.
+  b.push(p(21, 2, 2, 1, '#7a4436'), p(23, 1, 1, 1, '#7a4436'));
+
+  // Ground bands: light strip, mid strip, dark silhouette.
+  b.push(p(0, 15, 110, 2, land.light), p(0, 17, 110, 3, land.mid), p(0, 20, 110, 5, land.dark));
+  for (let i = 0; i < 46; i++) b.push(p(Math.floor(rnd() * 110), 19, 1, 1, land.dark));
+
+  // The creature, sitting on the horizon.
+  const cx = 62, cy = 10;
+  b.push(
+    p(cx + 1, cy, 4, 1, creature.shellDark),
+    p(cx, cy + 1, 6, 4, creature.shell),
+    p(cx, cy, 1, 1, creature.shellDark), p(cx + 5, cy, 1, 1, creature.shellDark),
+    p(cx + 1, cy + 3, 4, 2, creature.belly),
+    p(cx + 1, cy + 2, 1, 1, creature.eye), p(cx + 4, cy + 2, 1, 1, creature.eye),
+    p(cx - 1, cy + 5, 8, 1, creature.base),
+  );
+
+  b.push(p(100, 18, 1, 1, land.flower), p(100, 19, 1, 1, land.stem));
+
+  // Wooden signpost, bottom left, with the name routed into it. Two posts run
+  // down into the dark grass so the board is standing rather than floating.
+  const wood = { frame: '#3a2416', face: '#6b4429', top: '#8a5a35', shade: '#4a2f1e' };
+  b.push(
+    p(6, 22, 1, 3, wood.shade), p(24, 22, 1, 3, wood.shade),
+    p(3, 11, 25, 11, wood.frame),
+    p(4, 12, 23, 9, wood.face),
+    p(4, 12, 23, 1, wood.top),
+    p(4, 20, 23, 1, wood.shade),
+    text('MANAN', { x: 40, y: 98, scale: 3, fill: sky.cloud, shadow: wood.frame, shadowOffset: 3 }),
+    text('CHHABHAYA', { x: 40, y: 124, scale: 3, fill: sky.cloud, shadow: wood.frame, shadowOffset: 3 }),
+    text('@CHHABHAYAMANAN', { x: 40, y: 152, scale: 1.5, fill: '#e8d9a8', shadow: wood.frame, shadowOffset: 2 }),
+  );
+
+  return doc({
+    width: 880, height: 200,
+    title: 'Manan Chhabhaya — @ChhabhayaManan',
+    desc: 'Pixel art banner: a route at morning, blue banded sky with a blocky cloud, a small creature sitting on the grass horizon, and the name on a signboard.',
+    body: b.join(''),
+  });
+}
+
+// ---------------------------------------------------------------- sprite ----
+
+function sprite() {
+  const u = 10;
+  const p = px(u);
+  const b = [p(0, 0, 17, 17, ui.panel)];
+
+  for (let i = 0; i < 17; i++) b.push(p(i, 13, 1, 4, i % 3 === 0 ? board.eatenDot : land.dark));
+
+  b.push(
+    p(6, 3, 5, 1, creature.shellDark),
+    p(5, 4, 7, 5, creature.shell),
+    p(5, 3, 1, 1, creature.shellDark), p(11, 3, 1, 1, creature.shellDark),
+    p(5, 7, 7, 3, creature.belly),
+    p(6, 5, 1, 2, creature.eye), p(10, 5, 1, 2, creature.eye),
+    p(7, 6, 3, 1, creature.mouth),
+    p(4, 10, 9, 3, creature.base),
+    p(4, 9, 1, 2, creature.shellDark), p(12, 9, 1, 2, creature.shellDark),
+  );
+
+  // Two-frame idle: the whole body lifts 4px on a slow cycle. Pure CSS, so it
+  // survives camo the same way the snake board does.
+  const style = `.idle{animation:bob 1.8s steps(1,end) infinite}@keyframes bob{0%,50%{transform:translateY(0)}50.01%,100%{transform:translateY(-4px)}}`;
+
+  return doc({
+    width: 170, height: 170,
+    title: 'Idle sprite placeholder',
+    desc: 'Pixel art creature standing in grass, bobbing gently.',
+    style,
+    body: `<g class="idle">${b.join('')}</g>`,
+  });
+}
+
+// --------------------------------------------------------------- closing ----
+
+function closing() {
+  const rnd = seeded(7);
+  const p = px(PIXEL);
+  const b = [];
+
+  b.push(
+    p(0, 0, 110, 4, dusk.night), p(0, 4, 110, 3, dusk.violet), p(0, 7, 110, 3, dusk.rose),
+    p(0, 10, 110, 3, dusk.amber), p(0, 13, 110, 3, dusk.gold),
+  );
+
+  b.push(p(76, 9, 5, 1, dusk.sunCore), p(75, 10, 7, 4, dusk.sunMid), p(76, 14, 5, 1, dusk.sunEdge));
+
+  const hills = [[14, 0, 26], [13, 4, 18], [12, 8, 10], [14, 44, 30], [13, 50, 18], [15, 86, 24], [14, 92, 12]];
+  hills.forEach(([y, x, w]) => b.push(p(x, y, w, 25 - y, dusk.hill)));
+
+  b.push(p(0, 16, 110, 2, dusk.hillDark), p(0, 18, 110, 7, dusk.ground));
+  for (let i = 0; i < 40; i++) b.push(p(Math.floor(rnd() * 110), 17, 1, 1, dusk.ground));
+
+  [[0, 0, 18], [1, 0, 15], [2, 0, 11], [3, 0, 7], [4, 0, 4]].forEach(([y, x, w]) => b.push(p(x, y, w, 1, dusk.canopy)));
+
+  // Two figures, backs to camera, watching the sun go.
+  b.push(
+    p(20, 14, 2, 4, dusk.ground), p(20, 13, 2, 1, '#2f2140'),
+    p(24, 15, 3, 3, dusk.ground), p(23, 16, 1, 2, dusk.ground), p(27, 14, 1, 2, dusk.ground),
+  );
+
+  const line = 'THANKS FOR STOPPING BY';
+  const w = textWidth(line) * 1.5;
+  b.push(text(line, { x: 880 - 28 - w, y: 167, scale: 1.5, fill: dusk.text, shadow: dusk.ground, shadowOffset: 2 }));
+
+  return doc({
+    width: 880, height: 200,
+    title: 'Thanks for stopping by',
+    desc: 'Pixel art bookend: the same route at dusk, layered hill silhouettes, two figures watching the sun set.',
+    body: b.join(''),
+  });
+}
+
+// -------------------------------------------------------------- headings ----
+
+function heading(label) {
+  const scale = 2;
+  const w = 8 + 8 + textWidth(label) * scale;
+  const h = 20;
+  const body =
+    rect(0, 6, 8, 8, board.tiers[3]) +
+    text(label, { x: 16, y: 3, scale, fill: ui.text });
+  return doc({ width: w, height: h, title: label, body });
+}
+
+const HEADINGS = {
+  'h-whoami.svg': 'WHO AM I',
+  'h-toolbox.svg': 'TOOLBOX',
+  'h-building.svg': 'CURRENTLY BUILDING',
+  'h-route.svg': 'ROUTE 01 - THE TALL GRASS',
+  'h-sayhi.svg': 'SAY HI',
+};
+
+// ------------------------------------------------------------------ main ----
+
+console.log('generating art');
+out('banner.svg', banner());
+out('sprite-idle.svg', sprite());
+out('closing.svg', closing());
+for (const [file, label] of Object.entries(HEADINGS)) out(file, heading(label));
+console.log('done');

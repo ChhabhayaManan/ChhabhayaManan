@@ -1,0 +1,48 @@
+name: snake
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snake
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Public contributions only. The built-in token is enough for the
+      # contribution calendar; no PAT, nothing to rotate.
+      - name: Generate board
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/snake.mjs \
+            --login ${{ github.repository_owner }} \
+            --out dist/snake.svg \
+            --data dist/snake-data.json
+
+      - name: Publish to output branch
+        run: |
+          set -euo pipefail
+          cd dist
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -qb output
+          git add -A
+          git commit -qm "snake: $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" output
