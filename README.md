@@ -32,13 +32,13 @@ Mostly interested in the boring parts — reproducible infra, observable pipelin
 A Zapier for DevOps: build AI workflows that wire your pipelines, cloud and alerting together instead of gluing them by hand.<br>
 <sub>Hard part: making an automation you can trust to touch production.</sub>
 
-### Route 01 — the tall grass
+### Tall grass
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/ChhabhayaManan/ChhabhayaManan/output/snake.svg" alt="A snake walks my GitHub contribution grid, eating every day that had activity." width="880">
 </div>
 
-<sub>Regenerated every 6 hours from the live contribution calendar. The snake grows one segment per day eaten until it hits its ceiling, then sheds a tail cell for every new one. · <a href="https://chhabhayamanan.github.io/ChhabhayaManan/">Watch it frame by frame →</a></sub>
+<sub>Rebuilt every 6 hours from live contributions. · <a href="https://chhabhayamanan.github.io/ChhabhayaManan/">Frame by frame →</a></sub>
 
 ### Say hi
 
