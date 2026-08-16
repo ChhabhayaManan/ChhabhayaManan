@@ -181,7 +181,7 @@ function heading(label) {
 const HEADINGS = {
   'h-whoami.svg': 'WHO AM I',
   'h-toolbox.svg': 'TOOLBOX',
-  'h-building.svg': 'CURRENTLY BUILDING',
+  'h-building.svg': 'NEXT UP',
   'h-route.svg': 'ROUTE 01 - THE TALL GRASS',
   'h-sayhi.svg': 'SAY HI',
 };

@@ -21,29 +21,33 @@ Mostly interested in the boring parts — reproducible infra, observable pipelin
 
 <img src="assets/h-toolbox.svg" alt="Toolbox" height="20">
 
-![AWS](https://img.shields.io/badge/cloud-AWS-FF9900?style=flat-square&logo=amazonwebservices&logoColor=white&labelColor=0d1117)
-![Python](https://img.shields.io/badge/lang-Python-3776AB?style=flat-square&logo=python&logoColor=white&labelColor=0d1117)
-![C++](https://img.shields.io/badge/lang-C%2B%2B-00599C?style=flat-square&logo=cplusplus&logoColor=white&labelColor=0d1117)
-![PostgreSQL](https://img.shields.io/badge/data-PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white&labelColor=0d1117)
-![LangChain](https://img.shields.io/badge/llm-LangChain-1C3C3C?style=flat-square&logo=langchain&logoColor=white&labelColor=0d1117)
-![LangGraph](https://img.shields.io/badge/llm-LangGraph-2F7A41?style=flat-square&logo=langchain&logoColor=white&labelColor=0d1117)
-![LangSmith](https://img.shields.io/badge/llm-LangSmith-4AC26B?style=flat-square&logo=langchain&logoColor=white&labelColor=0d1117)
-![Terraform](https://img.shields.io/badge/infra-Terraform-7B42BC?style=flat-square&logo=terraform&logoColor=white&labelColor=0d1117)
-![Docker](https://img.shields.io/badge/infra-Docker-2496ED?style=flat-square&logo=docker&logoColor=white&labelColor=0d1117)
-![CI/CD](https://img.shields.io/badge/infra-CI%2FCD-2088FF?style=flat-square&logo=githubactions&logoColor=white&labelColor=0d1117)
-![Git](https://img.shields.io/badge/vcs-Git-F05032?style=flat-square&logo=git&logoColor=white&labelColor=0d1117)
+<!-- Icons: github.com/marwin1991/profile-technology-icons -->
 
-<img src="assets/h-building.svg" alt="Currently building" height="20">
+<img alt="AWS" title="AWS" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/aws.png">
+&nbsp;
+<img alt="Python" title="Python" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/python.png">
+&nbsp;
+<img alt="C++" title="C++" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/c%2B%2B.png">
+&nbsp;
+<img alt="PostgreSQL" title="PostgreSQL" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/postgresql.png">
+&nbsp;
+<img alt="LangChain, LangGraph and LangSmith" title="LangChain · LangGraph · LangSmith" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/langchain_icon.png">
+&nbsp;
+<img alt="Terraform" title="Terraform" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/terraform.png">
+&nbsp;
+<img alt="Docker" title="Docker" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/docker.png">
+&nbsp;
+<img alt="CI/CD" title="CI/CD" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/ci_cd.png">
+&nbsp;
+<img alt="Git" title="Git" height="46" src="https://raw.githubusercontent.com/marwin1991/profile-technology-icons/refs/heads/main/icons/git.png">
 
-<!-- PLACEHOLDER: swap in the real repos. Keep the shape: link, what it is, what's hard. -->
+<sub>AWS · Python · C++ · PostgreSQL · LangChain / LangGraph / LangSmith · Terraform · Docker · CI/CD · Git</sub>
 
-**[repo-name-here](https://github.com/ChhabhayaManan)** — _placeholder_<br>
-LangGraph agents with a real deploy story: versioned graphs, replayable runs.<br>
-<sub>Hard part: making non-determinism debuggable.</sub>
+<img src="assets/h-building.svg" alt="Next up" height="20">
 
-**[repo-name-here](https://github.com/ChhabhayaManan)** — _placeholder_<br>
-Opinionated Terraform modules for small AWS accounts that still pass an audit.<br>
-<sub>Hard part: sane defaults without hidden magic.</sub>
+**[DevilOps](https://github.com/ChhabhayaManan/DevilOps)** — _ideation_<br>
+A Zapier for DevOps: build AI workflows that wire your pipelines, cloud and alerting together instead of gluing them by hand.<br>
+<sub>Hard part: making an automation you can trust to touch production.</sub>
 
 <img src="assets/h-route.svg" alt="Route 01 — the tall grass" height="20">
 
