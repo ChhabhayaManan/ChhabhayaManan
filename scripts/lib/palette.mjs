@@ -107,5 +107,5 @@ export const BOARD_GEO = {
   x0: 16,
   y0: 26,
   width: 880,
-  height: 200,
+  height: 164,
 };

@@ -19,7 +19,6 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { doc, rect, seeded } from './lib/svg.mjs';
-import { text, textWidth } from './lib/font.mjs';
 import { board as C, BOARD_GEO as GEO } from './lib/palette.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -313,7 +312,7 @@ function timeline(path, eatenAt) {
 function render(grid, solved, tl, meta) {
   const { cols, rows, cells } = grid;
   const { path, eatenAt, foodTotal } = solved;
-  const { releaseAt, finalLength, longest } = tl;
+  const { releaseAt, finalLength } = tl;
   const { cell, gap, x0, y0, width, height } = GEO;
 
   const stride = Math.max(1, Math.ceil((path.length * STEP_MS) / (MAX_WALK_S * 1000)));
@@ -432,11 +431,8 @@ function render(grid, solved, tl, meta) {
     `</g>`
   );
 
-  // Legend, in the same pixel type as the banner.
-  const caught = `CAUGHT ${eatenAt.length}/${foodTotal}`;
-  const lenLabel = `LONGEST ${longest}`;
-  parts.push(text(caught, { x: 32, y: 176, scale: 1.5, fill: C.legend }));
-  parts.push(text(lenLabel, { x: width - 32 - textWidth(lenLabel) * 1.5, y: 176, scale: 1.5, fill: C.legendMuted }));
+  // No legend row. The counts live in the SVG <title> for screen readers and in
+  // the viewer's stat tiles; on the profile itself the board speaks for itself.
 
   const style =
     `.a{animation-duration:${loopS}s;animation-timing-function:steps(1,end);animation-iteration-count:infinite}` +
@@ -445,7 +441,7 @@ function render(grid, solved, tl, meta) {
   const svg = doc({
     width, height,
     title: `${meta.login} contribution snake — ${eatenAt.length} of ${foodTotal} days caught, final length ${finalLength}`,
-    desc: `Animated contribution grid for ${meta.login}. A snake walks the ${cols}-week board eating every day with activity; its body grows one segment per day eaten and never shrinks. ${meta.total} contributions in the last year.`,
+    desc: `Animated contribution grid for ${meta.login}. A snake walks the ${cols}-week board eating every day with activity; its body grows one segment per day eaten until it reaches its ceiling. ${meta.total} contributions in the last year.`,
     style,
     body: parts.join(''),
   });

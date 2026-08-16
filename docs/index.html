@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Route 01 — frame by frame</title>
+<title>Contribution heatmap — frame by frame</title>
 <meta name="description" content="Scrub the contribution snake frame by frame. The board is generated from the live GitHub contribution calendar for @ChhabhayaManan.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -77,15 +77,15 @@
   <div class="crumb">
     <span class="dot"></span>
     <a href="https://github.com/ChhabhayaManan">ChhabhayaManan</a><span>/</span>
-    <span style="color:var(--text);font-weight:600">route&nbsp;01</span>
+    <span style="color:var(--text);font-weight:600">heatmap</span>
     <span class="right" id="stamp">loading…</span>
   </div>
 
   <div class="card">
     <div>
-      <h1>Route 01 — the tall grass</h1>
+      <h1>Contribution heatmap</h1>
       <p style="margin-top:10px">
-        The same board the README shows, but scrubbable. Every day with activity is a patch of tall grass;
+        The same board the README shows, but scrubbable. Every day with activity is a patch of grass;
         the snake walks the year eating them, growing one segment per patch until it hits its ceiling —
         after that it sheds a tail cell for every new one it takes.
       </p>
@@ -93,12 +93,12 @@
 
     <div>
       <h2>As it appears on the profile</h2>
-      <div class="frame" style="margin-top:12px"><img id="live" alt="Animated contribution snake board" width="880" height="200"></div>
+      <div class="frame" style="margin-top:12px"><img id="live" alt="Animated contribution snake board" width="880" height="164"></div>
     </div>
 
     <div>
       <h2>Frame by frame</h2>
-      <div class="frame" style="margin-top:12px"><canvas id="board" width="880" height="200"></canvas></div>
+      <div class="frame" style="margin-top:12px"><canvas id="board" width="880" height="164"></canvas></div>
 
       <div class="row" style="margin-top:14px">
         <button id="play" aria-pressed="false">▶ play</button>
@@ -144,7 +144,7 @@ const TIERS = ['#161b22', '#1f4a2c', '#2f7a41', '#4ac26b'];
 const BODY = '#7fe08a', HEAD = '#eaffd8', EYE = '#0d2b14';
 const EATEN = '#12281a', EATEN_EMPTY = '#131820', DOT = '#1c3a24';
 const SKY = ['#123049', '#16405e', '#1b5273'], TURF_EDGE = '#14301d', TURF = '#0f2417';
-const GEO = { cell: 14, gap: 2, x0: 16, y0: 26, w: 880, h: 200 };
+const GEO = { cell: 14, gap: 2, x0: 16, y0: 26, w: 880, h: 164 };
 
 const $ = (id) => document.getElementById(id);
 const ctx = $('board').getContext('2d');
