@@ -67,7 +67,6 @@ export const board = {
   eatenDot: '#1c3a24',
   bodyStart: '#7fe08a',
   bodyEnd: '#eaffd8',
-  bodyFade: '#3f8f55', // one dim step as the tail slides off a cell
   head: '#eaffd8',
   eye: '#0d2b14',
   legend: '#7fe08a',

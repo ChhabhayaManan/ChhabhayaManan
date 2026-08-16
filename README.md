@@ -59,5 +59,5 @@ Opinionated Terraform modules for small AWS accounts that still pass an audit.<b
 [![Email](https://img.shields.io/badge/mail-mananchhabhaya%40gmail.com-5CB04F?style=flat-square&logo=gmail&logoColor=white&labelColor=0d1117)](mailto:mananchhabhaya@gmail.com)
 
 <div align="center">
-  <img src="assets/closing.svg" alt="The same route at dusk — thanks for stopping by" width="880">
+  <img src="assets/closing.svg" alt="Pixel art closing banner" width="880" height="177">
 </div>

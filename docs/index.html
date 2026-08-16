@@ -63,7 +63,7 @@
 
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--dim);align-items:center}
   .swatch{display:inline-flex;align-items:center;gap:6px}
-  .swatch i{width:12px;height:12px;border-radius:2px;display:block}
+  .swatch i{width:12px;height:12px;display:block}
 
   .note{font-size:11px;color:var(--dim);line-height:1.7}
   .note code{color:var(--muted);background:var(--panel);border:1px solid var(--border);border-radius:3px;padding:1px 5px}
@@ -125,7 +125,6 @@
       <span class="swatch"><i style="background:#4ac26b"></i>tier 3</span>
       <span class="swatch"><i style="background:#7fe08a"></i>body</span>
       <span class="swatch"><i style="background:#eaffd8"></i>head</span>
-      <span class="swatch"><i style="background:#3f8f55"></i>shedding</span>
       <span class="swatch"><i style="background:#12281a"></i>flattened</span>
     </div>
 
@@ -142,11 +141,10 @@
 <script>
 const OUT = 'https://raw.githubusercontent.com/ChhabhayaManan/ChhabhayaManan/output/';
 const TIERS = ['#161b22', '#1f4a2c', '#2f7a41', '#4ac26b'];
-const HOT = '#a8ecb0', BODY = '#7fe08a', FADE = '#3f8f55', HEAD = '#eaffd8', EYE = '#0d2b14';
+const BODY = '#7fe08a', HEAD = '#eaffd8', EYE = '#0d2b14';
 const EATEN = '#12281a', EATEN_EMPTY = '#131820', DOT = '#1c3a24';
 const SKY = ['#123049', '#16405e', '#1b5273'], TURF_EDGE = '#14301d', TURF = '#0f2417';
 const GEO = { cell: 14, gap: 2, x0: 16, y0: 26, w: 880, h: 200 };
-const HOT_FRAMES = 4;
 
 const $ = (id) => document.getElementById(id);
 const ctx = $('board').getContext('2d');
@@ -195,11 +193,9 @@ async function load() {
 
 function cellAt(c, r) { return [GEO.x0 + c * (GEO.cell + GEO.gap), GEO.y0 + r * (GEO.cell + GEO.gap)]; }
 
-function roundRect(x, y, w, h, r, fill) {
+function block(x, y, w, h, fill) {
   ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
-  ctx.fill();
+  ctx.fillRect(x, y, w, h);
 }
 
 function draw() {
@@ -224,35 +220,31 @@ function draw() {
     state.set(c[0] * D.rows + c[1], { tier: c[2], count: c[3], date: c[4], fill: TIERS[c[2]] });
   }
 
-  // Replay the path up to this instant. Mirrors the keyframe ladder the SVG
-  // generator emits: head -> hot -> body -> fade -> flattened.
-  const hot = (D.hotFrames ?? HOT_FRAMES) * D.stride;
-  const fade = (D.fadeFrames ?? 2) * D.stride;
+  // Replay the path up to this instant. Mirrors the SVG's four fills exactly:
+  // grass -> head -> body -> flattened, nothing in between.
   for (let j = 0; j <= i; j++) {
     const [c, r] = D.path[j];
     const s = state.get(c * D.rows + r);
     if (!s) continue;
     const rel = D.releaseAt[j];
     const gone = rel >= 0 && rel <= i;
-    if (gone && i - rel >= fade) s.fill = s.count > 0 ? EATEN : EATEN_EMPTY;
-    else if (gone) s.fill = FADE;
+    if (gone) s.fill = s.count > 0 ? EATEN : EATEN_EMPTY;
     else if (j === i) s.fill = HEAD;
-    else if (i - j <= hot) s.fill = HOT;
     else s.fill = BODY;
-    s.flat = gone && i - rel >= fade && s.count > 0;
+    s.flat = gone && s.count > 0;
   }
 
   for (const [k, s] of state) {
     const c = Math.floor(k / D.rows), r = k % D.rows;
     const [x, y] = cellAt(c, r);
-    roundRect(x, y, GEO.cell, GEO.cell, 2, s.fill);
+    block(x, y, GEO.cell, GEO.cell, s.fill);
     if (s.flat) { ctx.fillStyle = DOT; ctx.fillRect(x + 5, y + 5, 4, 4); }
   }
 
   // head on top, with eyes
   const [hc, hr] = D.path[i];
   const [hx, hy] = cellAt(hc, hr);
-  roundRect(hx, hy, GEO.cell, GEO.cell, 4, HEAD);
+  block(hx, hy, GEO.cell, GEO.cell, HEAD);
   ctx.fillStyle = EYE;
   ctx.fillRect(hx + 3, hy + 4, 3, 3);
   ctx.fillRect(hx + 8, hy + 4, 3, 3);

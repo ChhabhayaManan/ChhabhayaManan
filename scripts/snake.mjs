@@ -24,14 +24,12 @@ import { board as C, BOARD_GEO as GEO } from './lib/palette.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Timing. 20s of walking, then a 2s hold on the fully grown snake.
-const WALK_S = 20;
-const HOLD_S = 2;
-const LOOP_S = WALK_S + HOLD_S;
-const ACTIVE = (WALK_S / LOOP_S) * 100; // percent of the loop spent moving
-const MAX_FRAMES = 420;                  // beyond this, the head moves >1 cell per frame
-const HOT_FRAMES = 4;                    // how long a segment stays bright behind the head
-const FADE_FRAMES = 2;                   // dim step as the tail leaves a cell
+// Timing. Pace is fixed per step and the loop length follows from it — the
+// other way round (fixed 20s loop, pace derived) means a busy year animates
+// faster than a quiet one, which is backwards.
+const STEP_MS = 200;                     // one cell of travel
+const HOLD_S = 2;                        // pause on the finished snake before restarting
+const MAX_WALK_S = 48;                   // past this the head covers 2 cells per frame
 const START_LENGTH = 4;
 const MAX_LENGTH = 20;                   // growth ceiling; past this, one in one out
 
@@ -86,7 +84,10 @@ function mockCalendar() {
   const day = new Date(Date.UTC(2025, 7, 17));
   for (let w = 0; w < 53; w++) {
     const contributionDays = [];
-    for (let d = 0; d < 7; d++) {
+    // The real calendar's last week stops at today, so the mock does too —
+    // otherwise the hole-filling path never gets exercised locally.
+    const days = w === 52 ? 3 : 7;
+    for (let d = 0; d < days; d++) {
       const v = rnd();
       const count = v < 0.34 ? 0 : v < 0.62 ? 1 + Math.floor(rnd() * 2) : v < 0.86 ? 3 + Math.floor(rnd() * 5) : 9 + Math.floor(rnd() * 14);
       total += count;
@@ -114,6 +115,17 @@ function toGrid(cal) {
     }
   }
 
+  // The current week only runs up to today, so its lower rows come back empty
+  // and the board renders with a ragged notch. Fill every hole with a real
+  // empty cell: the grid is always a full cols x 7 rectangle, and the snake can
+  // walk those squares like any other bare ground.
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < GEO.rows; r++) {
+      const k = c * GEO.rows + r;
+      if (!cells[k]) cells[k] = { c, r, count: 0, date: null, tier: 0, filler: true };
+    }
+  }
+
   const nonZero = cells.filter((x) => x && x.count > 0).map((x) => x.count).sort((a, b) => a - b);
   const q = (f) => (nonZero.length ? nonZero[Math.min(nonZero.length - 1, Math.floor(nonZero.length * f))] : 1);
   const t2 = q(1 / 3);
@@ -128,88 +140,145 @@ function toGrid(cal) {
 
 // ----------------------------------------------------------------- solve ----
 
+const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+
 /**
- * Greedy nearest-food walk, 4-directional, one cell per step.
+ * Snake solver with a hard no-self-crossing rule.
  *
- * Self-overlap is allowed as a last resort rather than a hard wall: the body
- * only grows, so late in a dense year there is genuinely nowhere legal to go.
- * A plausible loop beats a failed build. Overlaps are counted and logged.
+ * The body is a wall, always. Two pieces make that work on a 53x7 board, which
+ * is a nasty shape for a snake — only seven rows means it boxes itself in fast:
+ *
+ *   1. Route with BFS over free cells to the *reachable* nearest food, not the
+ *      manhattan-nearest one. Manhattan distance happily points at food on the
+ *      far side of the body.
+ *   2. Before committing to a move, flood fill from where the head would land.
+ *      If the open space left is smaller than the body, that move is a coffin —
+ *      take the roomiest alternative instead, even though it walks away from
+ *      dinner. This is what stops the snake sealing itself into a pocket.
+ *
+ * Walking back over a cell it already ate is fine and expected — that is
+ * flattened grass, not the body. Only body-on-body is forbidden.
+ *
+ * If every neighbour is body, the walk stops there. It ends up short rather
+ * than cheating, and the legend reports the honest caught count.
  */
 function solve(grid) {
   const { cols, rows, cells } = grid;
   const key = (c, r) => c * rows + r;
-  const isFood = (k) => cells[k] && cells[k].count > 0;
+  const inside = (c, r) => c >= 0 && c < cols && r >= 0 && r < rows;
 
   const remaining = new Set();
   cells.forEach((cell, k) => { if (cell && cell.count > 0) remaining.add(k); });
   const foodTotal = remaining.size;
 
-  const path = [[0, Math.floor(rows / 2)]];
-  const eatenAt = [];           // path index of every meal
-  let overlaps = 0;
+  const start = [0, Math.floor(rows / 2)];
+  const path = [start];
+  const eatenAt = [];
+  const body = [start];              // oldest segment first
+  const occ = new Set([key(...start)]);
 
-  // Occupancy of the body, by cell key, as a count (a cell can be under two
-  // segments when the path crosses itself).
-  const occ = new Map();
-  const bump = (k, n) => {
-    const v = (occ.get(k) ?? 0) + n;
-    if (v <= 0) occ.delete(k); else occ.set(k, v);
-  };
-  bump(key(...path[0]), 1);
+  if (remaining.has(key(...start))) { remaining.delete(key(...start)); eatenAt.push(0); }
 
-  let cur = path[0];
-  if (remaining.has(key(...cur))) { remaining.delete(key(...cur)); eatenAt.push(0); }
+  /** First step of the shortest free-cell route to the nearest remaining food. */
+  const routeStep = (head) => {
+    const from = new Int32Array(cols * rows).fill(-1);
+    const seen = new Uint8Array(cols * rows);
+    const hk = key(...head);
+    seen[hk] = 1;
+    const queue = [head];
+    let goal = -1;
 
-  const guard = cols * rows * 8;
-  while (remaining.size && path.length < guard) {
-    // Nearest remaining food by manhattan distance; ties break toward the top
-    // left so the walk reads left-to-right overall.
-    let target = null, best = Infinity;
-    for (const k of remaining) {
-      const c = Math.floor(k / rows), r = k % rows;
-      const d = Math.abs(c - cur[0]) + Math.abs(r - cur[1]);
-      if (d < best) { best = d; target = [c, r]; }
-    }
-
-    let steps = 0;
-    while ((cur[0] !== target[0] || cur[1] !== target[1]) && steps++ < cols + rows + 4) {
-      const dc = Math.sign(target[0] - cur[0]);
-      const dr = Math.sign(target[1] - cur[1]);
-      // Moves that close the gap, preferring the one that is not body.
-      const options = [];
-      if (dr) options.push([cur[0], cur[1] + dr]);
-      if (dc) options.push([cur[0] + dc, cur[1]]);
-      let next = options.find(([c, r]) => !occ.has(key(c, r)));
-      if (!next) { next = options[0]; overlaps++; }
-
-      cur = next;
-      const k = key(cur[0], cur[1]);
-      path.push([cur[0], cur[1]]);
-      bump(k, 1);
-      if (remaining.has(k)) { remaining.delete(k); eatenAt.push(path.length - 1); }
-
-      // Retire the tail so `occ` reflects the body at this instant.
-      const len = Math.min(MAX_LENGTH, START_LENGTH + eatenAt.length);
-      const tailIdx = path.length - len;
-      if (tailIdx >= 0) bump(key(...path[tailIdx]), -1);
-    }
-  }
-
-  // Never leave the board broken: if the greedy walk stalled with food still on
-  // the grid, sweep the rest serpentine so every cell is reachable.
-  if (remaining.size) {
-    for (let c = 0; c < cols; c++) {
-      const order = c % 2 === 0 ? [0, 1, 2, 3, 4, 5, 6] : [6, 5, 4, 3, 2, 1, 0];
-      for (const r of order) {
-        if (path[path.length - 1][0] === c && path[path.length - 1][1] === r) continue;
-        path.push([c, r]);
-        const k = key(c, r);
-        if (remaining.has(k)) { remaining.delete(k); eatenAt.push(path.length - 1); }
+    for (let i = 0; i < queue.length && goal < 0; i++) {
+      const [c, r] = queue[i];
+      for (const [dc, dr] of DIRS) {
+        const nc = c + dc, nr = r + dr;
+        if (!inside(nc, nr)) continue;
+        const nk = key(nc, nr);
+        if (seen[nk] || occ.has(nk)) continue;
+        seen[nk] = 1;
+        from[nk] = key(c, r);
+        queue.push([nc, nr]);
+        if (remaining.has(nk)) { goal = nk; break; }
       }
     }
+    if (goal < 0) return null;
+
+    let k = goal;
+    while (from[k] !== hk) k = from[k];
+    return [Math.floor(k / rows), k % rows];
+  };
+
+  /** Open cells reachable from `head` once `blocked` is treated as wall. */
+  const openSpace = (head, blocked) => {
+    const seen = new Uint8Array(cols * rows);
+    const queue = [head];
+    seen[key(...head)] = 1;
+    let n = 1;
+    for (let i = 0; i < queue.length; i++) {
+      const [c, r] = queue[i];
+      for (const [dc, dr] of DIRS) {
+        const nc = c + dc, nr = r + dr;
+        if (!inside(nc, nr)) continue;
+        const nk = key(nc, nr);
+        if (seen[nk] || blocked.has(nk)) continue;
+        seen[nk] = 1; n++;
+        queue.push([nc, nr]);
+      }
+    }
+    return n;
+  };
+
+  /** The body as it would stand after stepping onto `next`. */
+  const bodyAfter = (next) => {
+    const after = new Set(occ);
+    after.add(key(...next));
+    const grows = remaining.has(key(...next));
+    const len = Math.min(MAX_LENGTH, START_LENGTH + eatenAt.length + (grows ? 1 : 0));
+    if (body.length + 1 > len) after.delete(key(...body[0]));
+    return { after, len };
+  };
+
+  let stalled = false;
+  let sinceMeal = 0;
+  const guard = cols * rows * 12;
+  // A legitimate trip to the far side of the board is under 60 steps. Much past
+  // that and the remaining food is walled off, so stop instead of wandering the
+  // frame budget away.
+  const patience = (cols + rows) * 4;
+
+  while (remaining.size && path.length < guard) {
+    if (sinceMeal > patience) { stalled = true; break; }
+    const head = path[path.length - 1];
+    const free = [];
+    for (const [dc, dr] of DIRS) {
+      const nc = head[0] + dc, nr = head[1] + dr;
+      if (inside(nc, nr) && !occ.has(key(nc, nr))) free.push([nc, nr]);
+    }
+    if (!free.length) { stalled = true; break; }
+
+    // Preferred move first, then the rest by how much room they leave.
+    const wanted = routeStep(head);
+    const scored = free.map((n) => {
+      const { after, len } = bodyAfter(n);
+      return { n, room: openSpace(n, after), len, wanted: wanted && n[0] === wanted[0] && n[1] === wanted[1] };
+    });
+    scored.sort((a, b) => (b.wanted - a.wanted) || (b.room - a.room));
+
+    const safe = scored.find((s) => s.room >= s.len);
+    const pick = (safe ?? scored[0]).n;
+
+    path.push(pick);
+    const k = key(...pick);
+    body.push(pick);
+    occ.add(k);
+    if (remaining.has(k)) { remaining.delete(k); eatenAt.push(path.length - 1); sinceMeal = 0; }
+    else sinceMeal++;
+
+    const len = Math.min(MAX_LENGTH, START_LENGTH + eatenAt.length);
+    while (body.length > len) occ.delete(key(...body.shift()));
   }
 
-  return { path, eatenAt, foodTotal, overlaps, isFood };
+  return { path, eatenAt, foodTotal, missed: remaining.size, stalled };
 }
 
 /**
@@ -247,9 +316,12 @@ function render(grid, solved, tl, meta) {
   const { releaseAt, finalLength, longest } = tl;
   const { cell, gap, x0, y0, width, height } = GEO;
 
-  const stride = Math.max(1, Math.ceil(path.length / MAX_FRAMES));
+  const stride = Math.max(1, Math.ceil((path.length * STEP_MS) / (MAX_WALK_S * 1000)));
   const frames = Math.ceil(path.length / stride);
-  const pct = (i) => ((Math.min(i, path.length) / stride / frames) * ACTIVE).toFixed(3);
+  const walkS = (frames * STEP_MS) / 1000;
+  const loopS = walkS + HOLD_S;
+  const active = (walkS / loopS) * 100; // percent of the loop spent moving
+  const pct = (i) => ((Math.min(i, path.length) / stride / frames) * active).toFixed(3);
   const at = (c, r) => [x0 + c * (cell + gap), y0 + r * (cell + gap)];
 
   const parts = [];
@@ -275,16 +347,15 @@ function render(grid, solved, tl, meta) {
     events.get(k).push([i, fill]);
   };
 
+  // Four fills, nothing between them: grass, head, body, flattened. No trail
+  // behind the head, no dim step as the tail leaves — a cell is one of the four
+  // and flips to the next on a frame boundary.
   path.forEach(([c, r], i) => {
     const k = c * rows + r;
     const wasFood = cells[k] && cells[k].count > 0;
     push(k, i, C.head);
-    push(k, i + 1, '#a8ecb0');
-    push(k, i + 1 + HOT_FRAMES * stride, C.bodyStart);
-    if (releaseAt[i] >= 0) {
-      push(k, releaseAt[i], C.bodyFade);
-      push(k, releaseAt[i] + FADE_FRAMES * stride, wasFood ? C.eaten : C.eatenEmpty);
-    }
+    push(k, i + 1, C.bodyStart);
+    if (releaseAt[i] >= 0) push(k, releaseAt[i], wasFood ? C.eaten : C.eatenEmpty);
   });
 
   let id = 0;
@@ -300,7 +371,7 @@ function render(grid, solved, tl, meta) {
       const list = (events.get(k) ?? []).slice().sort((a, b) => a[0] - b[0]);
 
       if (!list.length) {
-        parts.push(rect(x, y, cell, cell, base, 'rx="2"'));
+        parts.push(rect(x, y, cell, cell, base));
         continue;
       }
 
@@ -317,13 +388,13 @@ function render(grid, solved, tl, meta) {
         last = fill; lastPct = p;
       }
       if (kf.length === 1) {
-        parts.push(rect(x, y, cell, cell, base, 'rx="2"'));
+        parts.push(rect(x, y, cell, cell, base));
         continue;
       }
 
       const n = id++;
       keyframes.push(`@keyframes k${n}{${kf.join('')}}`);
-      parts.push(rect(x, y, cell, cell, base, `rx="2" class="a" style="animation-name:k${n}"`));
+      parts.push(rect(x, y, cell, cell, base, `class="a" style="animation-name:k${n}"`));
 
       // Flattened-grass marker: a small dot that appears once the cell has been
       // walked over for good.
@@ -339,21 +410,23 @@ function render(grid, solved, tl, meta) {
   }
   parts.push(...dots);
 
-  // The head rides above everything, one keyframe per frame.
+  // The head rides above everything, one keyframe per frame. Stepped like
+  // everything else: it is on a square or it is on the next one, never between.
+  // Interpolating it was tried and reads as too modern for the rest of the art.
   const headKf = [];
   for (let f = 0; f < frames; f++) {
     const [c, r] = path[Math.min(path.length - 1, f * stride)];
     const [x, y] = at(c, r);
-    headKf.push(`${((f / frames) * ACTIVE).toFixed(3)}%{transform:translate(${x}px,${y}px)}`);
+    headKf.push(`${((f / frames) * active).toFixed(3)}%{transform:translate(${x}px,${y}px)}`);
   }
   const [ex, ey] = at(...path[path.length - 1]);
-  headKf.push(`${ACTIVE.toFixed(3)}%{transform:translate(${ex}px,${ey}px)}`);
+  headKf.push(`${active.toFixed(3)}%{transform:translate(${ex}px,${ey}px)}`);
   keyframes.push(`@keyframes head{${headKf.join('')}}`);
 
   const [hx, hy] = at(...path[0]);
   parts.push(
     `<g class="a" style="animation-name:head;transform:translate(${hx}px,${hy}px)">` +
-      rect(0, 0, cell, cell, C.head, 'rx="4"') +
+      rect(0, 0, cell, cell, C.head) +
       rect(3, 4, 3, 3, C.eye) +
       rect(8, 4, 3, 3, C.eye) +
     `</g>`
@@ -366,7 +439,7 @@ function render(grid, solved, tl, meta) {
   parts.push(text(lenLabel, { x: width - 32 - textWidth(lenLabel) * 1.5, y: 176, scale: 1.5, fill: C.legendMuted }));
 
   const style =
-    `.a{animation-duration:${LOOP_S}s;animation-timing-function:steps(1,end);animation-iteration-count:infinite}` +
+    `.a{animation-duration:${loopS}s;animation-timing-function:steps(1,end);animation-iteration-count:infinite}` +
     keyframes.join('');
 
   const svg = doc({
@@ -377,7 +450,7 @@ function render(grid, solved, tl, meta) {
     body: parts.join(''),
   });
 
-  return { svg, stride, frames };
+  return { svg, stride, frames, walkS, loopS };
 }
 
 // ------------------------------------------------------------------ main ----
@@ -397,7 +470,7 @@ async function main() {
   const grid = toGrid(cal);
   const solved = solve(grid);
   const tl = timeline(solved.path, solved.eatenAt);
-  const { svg, stride, frames } = render(grid, solved, tl, { login: o.login, total: cal.totalContributions });
+  const { svg, stride, frames, walkS, loopS } = render(grid, solved, tl, { login: o.login, total: cal.totalContributions });
 
   const outPath = resolve(ROOT, o.out);
   mkdirSync(dirname(outPath), { recursive: true });
@@ -412,11 +485,10 @@ async function main() {
     rows: grid.rows,
     startLength: START_LENGTH,
     maxLength: MAX_LENGTH,
-    hotFrames: HOT_FRAMES,
-    fadeFrames: FADE_FRAMES,
     stride,
     frames,
-    walkSeconds: WALK_S,
+    stepMs: STEP_MS,
+    walkSeconds: walkS,
     holdSeconds: HOLD_S,
     foodTotal: solved.foodTotal,
     finalLength: tl.finalLength,
@@ -430,8 +502,10 @@ async function main() {
   console.log(
     `snake: ${solved.path.length} steps -> ${frames} frames (stride ${stride}), ` +
     `${solved.eatenAt.length}/${solved.foodTotal} caught, longest ${tl.longest}, ` +
-    `${solved.overlaps} forced overlaps, ${(svg.length / 1024).toFixed(0)} KB`
+    `${walkS.toFixed(1)}s walk + ${HOLD_S}s hold = ${loopS.toFixed(1)}s loop, ` +
+    `${(svg.length / 1024).toFixed(0)} KB`
   );
+  if (solved.stalled) console.warn(`! walk stopped early with ${solved.missed} cells walled off`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
